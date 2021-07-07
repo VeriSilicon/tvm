@@ -80,8 +80,9 @@ void UpdateOutputQuantInfo(const Call& c, uint32_t scale_idx, uint32_t zp_idx,
 
 void OpSetup::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx::Graph> graph,
                              std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
-  UpdateInputTableInfo(vxOpmap_tbl, input_key_, graph.get());
   UpdateOutputTableInfo(vxOpmap_tbl, expr_key_, graph.get());
+  UpdateInputTableInfo(vxOpmap_tbl, input_key_, graph.get());
+  
   auto op = CreateOperation(graph);
   (*op).BindInput(vxOpmap_tbl[input_key_]->ptensors_[0]);
   (*op).BindOutput(vxOpmap_tbl[expr_key_]->ptensors_[0]);
@@ -401,20 +402,19 @@ void VsiNpuQnnDeconv::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx
   TvxConv2dAttrs tvx_attrs(conv_);
   TvxDilateAttrs tvx_dilate_attrs(dilate_);
 
-  uint32_t stride_h = tvx_dilate_attrs.strides[1];
-  uint32_t stride_w = tvx_dilate_attrs.strides[2];
-
-  uint32_t pad_top = stride_h - tvx_attrs.padding[0] - 1;
-  uint32_t pad_left = stride_w - tvx_attrs.padding[1] - 1;
-  uint32_t pad_bottom = stride_h - tvx_attrs.padding[2] - 1;
-  uint32_t pad_right = stride_w - tvx_attrs.padding[3] - 1;
-
+  uint32_t kernel_size_h,kernel_size_w;
+  if(tvx_attrs.kernel_size.size() == 4){
+    kernel_size_h = tvx_attrs.kernel_size[1];
+    kernel_size_w = tvx_attrs.kernel_size[2];
+  }else if(tvx_attrs.kernel_size.size() == 2){
+    kernel_size_h = tvx_attrs.kernel_size[0];
+    kernel_size_w = tvx_attrs.kernel_size[1];
+  }
   
   auto op = graph->CreateOperation<tim::vx::ops::DeConv2d>(
-      oc_count, tvx_attrs.pad_type, std::array<uint32_t, 2>{tvx_attrs.kernel_size[1], tvx_attrs.kernel_size[2]},
+      oc_count, tvx_attrs.pad_type, std::array<uint32_t, 2>{kernel_size_h, kernel_size_w},
       std::array<uint32_t, 2>{tvx_dilate_attrs.strides[1],tvx_dilate_attrs.strides[2]},
       std::array<uint32_t, 2>{0, 0},
-      std::array<uint32_t, 4>{pad_top, pad_left, pad_bottom, pad_right}, tvx_attrs.groups,
       tim::vx::DataLayout::CWHN, tim::vx::DataLayout::OcIcWH);
 
   (*op).BindInputs({vxOpmap_tbl[input_key_]->ptensors_[0], vxOpmap_tbl[weight_key_]->ptensors_[0]});
@@ -472,13 +472,13 @@ void ElementWiseQnnOp::SetupOperand(const CallNode* cn, tim::vx::Quantization& q
     using Input_1 =
         Field_NoAttribute_U8<1, 4, 5, tim::vx::DataType::UINT8, tim::vx::QuantType::ASYMMETRIC>;
 
+    input_key_ = call_->args[Input_0::arg_pos];
     if (vxOpmap_tbl.find(input_key_) == vxOpmap_tbl.end()) {
-      input_key_ = call_->args[Input_0::arg_pos];
       vxOpmap_tbl[input_key_] = std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_, call_));
     }
 
-    if (vxOpmap_tbl.find(input2_key_) == vxOpmap_tbl.end()) {
-      input2_key_ = call_->args[Input_1::arg_pos];
+    input2_key_ = call_->args[Input_1::arg_pos];
+    if (vxOpmap_tbl.find(input2_key_) == vxOpmap_tbl.end()) { 
       if (input2_key_->IsInstance<ConstantNode>()) {
         vxOpmap_tbl[input2_key_] = std::make_shared<OpSetup>(
             Input_1::AsTimVxTensorSpec(call_, tim::vx::TensorAttribute::CONSTANT));
@@ -493,13 +493,13 @@ void ElementWiseQnnOp::SetupOperand(const CallNode* cn, tim::vx::Quantization& q
     using Input_1 =
         Field_NoAttribute_U8<1, 4, 5, tim::vx::DataType::INT8, tim::vx::QuantType::ASYMMETRIC>;
 
+    input_key_ = call_->args[Input_0::arg_pos];
     if (vxOpmap_tbl.find(input_key_) == vxOpmap_tbl.end()) {
-      input_key_ = call_->args[Input_0::arg_pos];
       vxOpmap_tbl[input_key_] = std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_, call_));
     }
 
+    input2_key_ = call_->args[Input_1::arg_pos];
     if (vxOpmap_tbl.find(input2_key_) == vxOpmap_tbl.end()) {
-      input2_key_ = call_->args[Input_1::arg_pos];
       if (input2_key_->IsInstance<ConstantNode>()) {
         vxOpmap_tbl[input2_key_] = std::make_shared<OpSetup>(
             Input_1::AsTimVxTensorSpec(call_, tim::vx::TensorAttribute::CONSTANT));
@@ -894,11 +894,17 @@ void QnnRequantize::SetupOperand(const CallNode* cn, tim::vx::Quantization& quan
     using Input_0 = Field_ASYMM_U8<0, 1, 2, tim::vx::TensorAttribute::TRANSIENT,
                                  tim::vx::DataType::UINT8, tim::vx::QuantType::ASYMMETRIC>;
     input_key_ = call_->args[Input_0::arg_pos];
+    if (vxOpmap_tbl.find(input_key_) != vxOpmap_tbl.end()) {
+      return;
+    }
     vxOpmap_tbl[input_key_] = std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_, call_));
   }else if(vxOpmap_tbl[expr_key_]->specs_[0].datatype_ == tim::vx::DataType::UINT8){
     using Input_0 = Field_ASYMM_U8<0, 1, 2, tim::vx::TensorAttribute::TRANSIENT,
                                  tim::vx::DataType::INT8, tim::vx::QuantType::ASYMMETRIC>;
     input_key_ = call_->args[Input_0::arg_pos];
+    if (vxOpmap_tbl.find(input_key_) != vxOpmap_tbl.end()) {
+      return;
+    }
     vxOpmap_tbl[input_key_] = std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_, call_));
   }
 
