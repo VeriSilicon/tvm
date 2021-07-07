@@ -1,0 +1,242 @@
+#include <tvm/relay/attrs/nn.h>
+#include <tvm/relay/expr_functor.h>
+#include <tvm/relay/transform.h>
+#include <tvm/relay/type.h>
+#include <tvm/runtime/module.h>
+#include <tvm/runtime/registry.h>
+#include <tvm/runtime/container.h>
+
+#include <fstream>
+#include <numeric>
+#include <sstream>
+
+#include "../../utils.h"
+#include "codegen_vsi_npu.h"
+
+#include "../../../../runtime/contrib/vsi_npu/vsi_npu_runtime.h"
+#include "../codegen_c/codegen_c.h"
+
+#include <tim/vx/types.h>
+#include <tim/vx/tensor.h>
+#include <tim/vx/ops/elementwise.h>
+#include <tim/vx/ops/activations.h>
+#include <tim/vx/ops/softmax.h>
+#include <tim/vx/ops/addn.h>
+#include <tim/vx/context.h>
+#include <tim/vx/graph.h>
+
+namespace tvm {
+namespace relay {
+namespace contrib {
+namespace vsi_npu {
+
+using namespace backend;
+
+std::map<Expr, std::vector<tvx::TensorSpec>> TensorMakerImpl::Create(const Expr& expr) {
+  this->tensor_info_tbl_.clear();
+  CHECK(expr->checked_type().defined());
+  size_t output_size = 1;
+  if (auto tuple = expr->checked_type().as<TupleTypeNode>()) {
+    output_size = tuple->fields.size();
+  }
+  auto tensor_node = expr->checked_type().as<TensorTypeNode>();
+  tim::vx::ShapeType o_shape;
+  std::transform(tensor_node->shape.begin(), tensor_node->shape.end(), std::back_inserter(o_shape),
+                 [](const PrimExpr& dim) { return static_cast<int>(dim.as<IntImmNode>()->value); });
+
+  for (size_t i = 0; i < output_size; i++) {
+    if (tensor_node[i].dtype.is_float()) {
+      tensor_info_tbl_[expr].push_back(
+          tvx::TensorSpec(tvx::DataType::FLOAT32, o_shape, tvx::TensorAttribute::OUTPUT));
+    } else if (tensor_node[i].dtype.is_uint())
+      tensor_info_tbl_[expr].push_back(
+          tvx::TensorSpec(tvx::DataType::UINT8, o_shape, tvx::TensorAttribute::OUTPUT));
+  }
+
+  VisitInferred(expr);
+
+  return tensor_info_tbl_;
+}
+
+void TensorMakerImpl::InferCall(const CallNode* cn) {
+  VsiError err;
+  Call call_obj = GetRef<Call>(cn);
+  Op op = Downcast<Op>(call_obj->op);
+  CHECK(op.defined());
+  tvx::Quantization out_quant = tvx::Quantization();
+  if (op == Op::Get("qnn.add")) {
+    err = VsiNpuAPI::Addition(call_obj, tensor_info_tbl_, out_quant);  
+  } else if(op == Op::Get("add")){
+    err = VsiNpuAPI::Addition(call_obj, tensor_info_tbl_);
+  }else if(op == Op::Get("nn.relu")){
+    err = VsiNpuAPI::Relu(call_obj, tensor_info_tbl_,out_quant);
+  }else if(op == Op::Get("nn.softmax")){
+    err = VsiNpuAPI::Softmax(call_obj, tensor_info_tbl_,out_quant);
+  }else{
+    std::cout << __FUNCTION__ << "not support operator." << std::endl;
+  }
+  // Set quantization info for model ouput
+  Expr expr = GetRef<Expr>(cn);
+  assert(tensor_info_tbl_.find(expr) != tensor_info_tbl_.end());
+  auto& info = tensor_info_tbl_[expr][0];
+  if (info.attr_ == tvx::TensorAttribute::OUTPUT && out_quant.ZeroPoints().size() != 0) {
+    info.SetQuantization(out_quant);
+  }
+}
+
+void TensorMakerImpl::VisitInferred(const Expr& expr) {
+  if (tensor_info_tbl_.find(expr) != tensor_info_tbl_.end()) {
+    for (auto& info : tensor_info_tbl_[expr]) {
+      // if datatype has not been set, we can figure the info has not been set
+      if (info.datatype_ == tvx::DataType::UNKNOWN) return;
+    }
+    VisitExpr(expr);  // base class visit API
+  }
+}
+
+void TensorMakerImpl::VisitExpr_(const CallNode* cn) {
+  InferCall(cn);
+  for (auto& arg : cn->args) {
+    VisitInferred(arg);
+  }
+}
+
+std::shared_ptr<tvx::Context> GraphMakerImpl::vx_global_ctx_ = tvx::Context::Create(); // default construct
+
+RawGraphDef GraphMakerImpl::Create(const Function& func) {
+  std::cout<<"GraphMakerImpl::Create"<<std::endl;
+  vx_graph_ = vx_global_ctx_->CreateGraph();
+
+  tensor_info_tbl_ = MakeTensor(this->module_, this->var_, func->body);
+
+  // unsigned int idx = 0;
+  for (const auto& param : func->params) {
+    for (auto& tensor_info : tensor_info_tbl_[param]) {
+      tensor_info.SetAttribute(tvx::TensorAttribute::INPUT);
+    }
+  }
+  VisitInferred(func->body);
+
+  size_t bin_size = -1;
+  bool is_ok = vx_graph_->CompileToBinary(nullptr, &bin_size);
+  assert(bin_size > 0 && is_ok);
+  std::shared_ptr<char> nbg_buf(new char [bin_size]); // TODO: memory leak risk, need double confirm
+  is_ok = vx_graph_->CompileToBinary(nbg_buf.get(), &bin_size);
+
+  std::vector<tvx::TensorSpec> input_spec, output_spec;
+  for (auto& pair : tensor_info_tbl_) {
+    std::for_each(pair.second.begin(), pair.second.end(),
+                  [&input_spec, &output_spec](const tvx::TensorSpec& spec) {
+                    if (spec.attr_ & tvx::TensorAttribute::INPUT) {
+                      input_spec.push_back(spec);
+                    } else if (spec.attr_ & tvx::TensorAttribute::OUTPUT) {
+                      output_spec.push_back(spec);
+                    }
+                  });
+  }
+
+  RawGraphDef result;
+  result.compiled_graph = nbg_buf;
+  result.compiled_graph_size = bin_size;
+  result.inputs_spec = input_spec;
+  result.outputs_spec = output_spec;
+  return result;
+}
+
+void GraphMakerImpl::VisitInferred(const Expr& expr) {
+  if (tensor_info_tbl_.find(expr) != tensor_info_tbl_.end()) {
+    for (auto& info : tensor_info_tbl_[expr]) {
+      // if datatype has not been set, we can figure the info has not been set
+      if (info.datatype_ == tvx::DataType::UNKNOWN) return;
+    }
+    VisitExpr(expr);  // base class visit API
+  }
+}
+
+void GraphMakerImpl::VisitExpr_(const CallNode* cn) {
+  InferCall(cn);
+  for (auto& arg : cn->args) {
+    VisitInferred(arg);
+  }
+}
+
+void GraphMakerImpl::InferCall(const CallNode* cn) {
+  std::cout << "GraphMakerImpl: CallNode" << std::endl;
+  VsiError err;
+
+  Call call = GetRef<Call>(cn);
+  // if(call->op->IsInstance<OpNode>()){
+  //   std::cout << __FUNCTION__ << "no opnode" << std::endl;
+  // }
+  Op op = Downcast<Op>(call->op);
+  CHECK(op.defined());
+  if(op == Op::Get("qnn.add") || op == Op::Get("add")){
+    err = CreateAdditionOp(cn);
+  }else if(op == Op::Get("nn.relu")){
+    err = CreateReluOp(cn);
+  }else if(op == Op::Get("nn.softmax")){
+    err = CreateSoftmaxOp(cn);
+  }else{
+    std::cout << __FUNCTION__ << "not support operator" << std::endl;
+  }
+}
+
+VsiError GraphMakerImpl::CreateReluOp(const CallNode* cn) {
+  Call call = GetRef<Call>(cn);
+  auto input = vx_graph_->CreateTensor(tensor_info_tbl_[call->args[0]][0]);
+  vx_tensor_tbl_[call->args[0]].push_back(input);
+  Expr expr = GetRef<Expr>(cn);
+  auto op = vx_graph_->CreateOperation<tvx::ops::Relu>();
+  (*op).BindInputs({input});
+  if (tensor_info_tbl_[expr][0].attr_ == tvx::TensorAttribute::OUTPUT) {
+    auto output = vx_graph_->CreateTensor(tensor_info_tbl_[expr][0]);
+    vx_tensor_tbl_[expr].push_back(output);
+    (*op).BindOutput(output);
+  }
+  (*op).BindOutput(vx_tensor_tbl_[expr][0]);
+  return VsiError();
+}
+
+VsiError GraphMakerImpl::CreateAdditionOp(const CallNode* cn) {
+  Call call = GetRef<Call>(cn);
+  auto input_0 = vx_graph_->CreateTensor(tensor_info_tbl_[call->args[0]][0]);
+  vx_tensor_tbl_[call->args[0]].push_back(input_0);
+  auto input_1 = vx_graph_->CreateTensor(tensor_info_tbl_[call->args[1]][0]);
+  vx_tensor_tbl_[call->args[1]].push_back(input_1);
+  Expr expr = GetRef<Expr>(cn);
+  auto op = vx_graph_->CreateOperation<tvx::ops::Add>();
+  (*op).BindInputs({input_0, input_1});
+  if (tensor_info_tbl_[expr][0].attr_ == tvx::TensorAttribute::OUTPUT) {
+    auto output = vx_graph_->CreateTensor(tensor_info_tbl_[expr][0]);
+    vx_tensor_tbl_[expr].push_back(output);
+    (*op).BindOutput(output);
+  }
+  (*op).BindOutput(vx_tensor_tbl_[expr][0]);
+  return VsiError();
+}
+
+tvm::runtime::Module VsiNpuCompiler::CreateRuntimeModule(const ObjectRef& ref) {
+  RawGraphDef raw_graph;
+
+  if (ref->IsInstance<FunctionNode>()) {
+    IRModule mod;
+    Function func = Downcast<Function>(ref);
+    auto name_node = func->GetAttr<String>(tvm::attr::kGlobalSymbol);
+
+    CHECK(name_node.defined()) << "Failed to retrieved external symbol.";
+    GlobalVar gvar = GlobalVar(name_node.value());
+    std::cout << "This is important----> name_node.value() == " << name_node.value() << std::endl;
+    mod->Add(gvar, func);
+    Function mod_func = Downcast<Function>(mod->functions.at(gvar));
+
+    raw_graph = MakeGraph(mod, gvar, mod_func);
+  }
+
+  return tvm::runtime::Module(make_object<tvm::runtime::vsi_npu::VsiNpuModule>(
+      raw_graph.compiled_graph, raw_graph.compiled_graph_size, raw_graph.inputs_spec, raw_graph.outputs_spec));
+}
+
+}  // namespace vsi_npu
+}  // namespace contrib
+}  // namespace relay
+}  // namespace tvm

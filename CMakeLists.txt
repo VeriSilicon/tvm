@@ -410,6 +410,7 @@ include(cmake/modules/contrib/Verilator.cmake)
 include(cmake/modules/Git.cmake)
 include(cmake/modules/LibInfo.cmake)
 include(cmake/modules/RustExt.cmake)
+include(cmake/modules/contrib/VsiNpu.cmake)
 
 include(CheckCXXCompilerFlag)
 if(NOT MSVC)
