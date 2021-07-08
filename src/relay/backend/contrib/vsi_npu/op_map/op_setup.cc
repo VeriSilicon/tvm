@@ -656,8 +656,8 @@ bool is_float_equal(float a, float b, float tol) {
   return fabs(a - b) < tol;
 }
 
-float unquantize(float val, float scale, float zero_point) {
-  return (val - zero_point) * scale;
+float unquantize(float val, tim::vx::Quantization& quantization) {
+  return (val - quantization.ZeroPoints()[0]) * quantization.Scales()[0];
 }
 
 void VsiNpuQnnClip::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx::Graph> graph,
@@ -680,8 +680,8 @@ std::shared_ptr<tim::vx::Operation> VsiNpuQnnClip::CreateOperation(
     std::shared_ptr<tim::vx::Graph> graph, Call call,
     std::map<Expr, std::shared_ptr<OpSetup>> &vxOpmap_tbl) {
   TvxClipAttrs tvx_attrs(call);
-  auto output = vxOpmap_tbl[expr_key_]->specs_[0].quantization_;
-  if (output.Type() == tim::vx::QuantType::NONE) {
+  auto output = vxOpmap_tbl[expr_key_]->specs_[0];
+  if (output.quantization_.Type() == tim::vx::QuantType::NONE) {
     float tol = 1e-3;
     if (is_float_equal(tvx_attrs.min, 0.0, tol) &&
         is_float_equal(tvx_attrs.max, 6.0, tol)) {
@@ -694,17 +694,19 @@ std::shared_ptr<tim::vx::Operation> VsiNpuQnnClip::CreateOperation(
     return graph->CreateOperation<tim::vx::ops::Clip>(tvx_attrs.min,
                                                       tvx_attrs.max);
   } else {
-    float min =
-        unquantize(tvx_attrs.min, output.Scales()[0], output.ZeroPoints()[0]);
-    float max =
-        unquantize(tvx_attrs.max, output.Scales()[0], output.ZeroPoints()[0]);
-    float uint8_max =
-        unquantize(255.0, output.Scales()[0], output.ZeroPoints()[0]);
-    float tol = output.Scales()[0];
+    float min = unquantize(tvx_attrs.min, output.quantization_);
+    float max = unquantize(tvx_attrs.max, output.quantization_);
+    float dtype_max;
+    if (output.datatype_ == tim::vx::DataType::UINT8) {
+      dtype_max = unquantize(255.0, output.quantization_);
+    } else { // tim::vx::DataType::INT8
+      dtype_max = unquantize(127.0, output.quantization_);
+    }
+    float tol = output.quantization_.Scales()[0];
     if (is_float_equal(min, 0.0, tol) && is_float_equal(max, 6.0, tol)) {
       return graph->CreateOperation<tim::vx::ops::Relu6>();
     }
-    if (is_float_equal(min, 0.0, tol) && is_float_equal(max, uint8_max, tol)) {
+    if (is_float_equal(min, 0.0, tol) && is_float_equal(max, dtype_max, tol)) {
       return graph->CreateOperation<tim::vx::ops::Relu>();
     }
     return graph->CreateOperation<tim::vx::ops::Clip>(min, max);

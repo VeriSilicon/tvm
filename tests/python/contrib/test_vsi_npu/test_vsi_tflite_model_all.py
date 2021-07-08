@@ -128,7 +128,6 @@ def get_model(model_list, model_name):
         if (model['name'] == model_name):
             return model
 
-
 model_list = [
     {'name': 'inception_v1_224_quant.tflite',
      'shape': (1, 224, 224, 3),
@@ -137,8 +136,7 @@ model_list = [
     {'name': 'efficientnet-edgetpu-S_quant.tflite',
      'shape': (1, 224, 224, 3),
      'input_tensor_name': 'images',
-     'dtype': "uint8"
-     },
+     'dtype': "uint8"},
     {'name': 'deeplabv3_mnv2_pascal_quant.tflite',
      'shape': (1, 513, 513, 3),
      'input_tensor_name': 'MobilenetV2/MobilenetV2/input',
@@ -151,12 +149,12 @@ model_list = [
 
 model_full_name = os.environ["TFLITE_MODEL"]
 (_, model_name) = os.path.split(model_full_name)
-DTYPE = "uint8"
 
 model = get_model(model_list, model_name)
 print (model)
 shape = model['shape']
 input_tensor_name = model['input_tensor_name']
+DTYPE = model['dtype']
 wait=input("press any key and continue...")
 
 path = "./"
@@ -171,8 +169,8 @@ input_data = n1.astype(np.uint8)
 vsi_input_data = {
     input_tensor_name: tvm.nd.array(input_data),
 }
-ref_output = get_ref_result(shape, model_full_name,input_data,input_tensor_name,DTYPE)
-vsi_output = compile_tflite_model(shape, model_full_name,vsi_input_data,input_tensor_name,DTYPE)
+ref_output = get_ref_result(shape, model_full_name, input_data, input_tensor_name, DTYPE)
+vsi_output = compile_tflite_model(shape, model_full_name, vsi_input_data, input_tensor_name, DTYPE)
 
 #print("ref_output:",ref_output)
 #print("vsi_output",vsi_output)
