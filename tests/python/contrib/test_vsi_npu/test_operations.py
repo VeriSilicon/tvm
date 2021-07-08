@@ -1267,7 +1267,7 @@ def test_uint8_fullconnected():
     verify_vsi_result(inputs, out, params, input_shape,
                       output_shape, output_dtype)
 
-def test_uint8_reshape():
+def test_uint8_squeeze():
     data_dtype = "uint8"
     axis_dtype = "int32"
     data_shape = (1,1,1,1000)
@@ -1522,7 +1522,8 @@ def test_transpose_conv2d_pattern():
 
 def test_uint8_transpose_conv2d_pattern():
     data_shape = (1, 24, 24, 256)
-    weight_shape = (2, 2, 256,128)
+    #weight_shape = (2, 2, 256,128)
+    weight_shape = (256, 128, 2,2)
     out_shape = (1, 48, 48, 128)
 
     input_dtype = "uint8"
@@ -1530,22 +1531,20 @@ def test_uint8_transpose_conv2d_pattern():
     output_dtype= input_dtype
     kernel_size=(2, 2)
     strides=(2, 2)
-    padding=(1, 1, 1, 1)
+    padding=(0, 0, 0, 0)
     data_layout="NHWC"
-    kernel_layout="HWIO"
 
     data = relay.var("data", shape=data_shape, dtype=input_dtype)
     weight = relay.var("weight",shape=weight_shape,dtype=input_dtype)
 
-    dilate = relay.nn.dilate(data,strides= (1,strides[0],strides[1],1), dilation_value=0)
 
     conv_params = {
             "kernel_size": kernel_size,
             "padding": padding,
             "data_layout": data_layout,
-            "channels":weight_shape[3],
-            "kernel_layout":kernel_layout,
-            "out_dtype":temp_dtype
+            "channels":weight_shape[1],
+            "out_dtype":temp_dtype,
+            "strides":strides
         }
     qnn_conv2d_params = dict(conv_params)
     qnn_conv2d_params["input_zero_point"] = relay.const(0, "int32")
@@ -1553,8 +1552,8 @@ def test_uint8_transpose_conv2d_pattern():
     qnn_conv2d_params["out_dtype"] = "int32"
     qnn_conv2d_params["input_scale"] = relay.const(0.0109899, "float32")
     qnn_conv2d_params["kernel_scale"] = relay.const(0.00171253, "float32")
-    conv_op = relay.qnn.op.conv2d(
-            dilate,
+    conv_op = relay.qnn.op.conv2d_transpose(
+            data,
             weight,
             **qnn_conv2d_params
         )
@@ -1562,7 +1561,7 @@ def test_uint8_transpose_conv2d_pattern():
     requantize_params = {
             "input_scale": relay.const(0.0109899*0.00171253, "float32"),
             "input_zero_point": relay.const(0, "int32"),
-            "output_scale": relay.const(0.000125877, "float32"),
+            "output_scale": relay.const(0.00000125877, "float32"),
             "output_zero_point": relay.const(124, "int32"),
             "axis": 3,
             "out_dtype":output_dtype,
@@ -1571,11 +1570,11 @@ def test_uint8_transpose_conv2d_pattern():
 
 
     inputs = {
-        "data": tvm.nd.array(np.random.randint(1, high=200, size=data_shape, dtype=input_dtype)),
+        "data": tvm.nd.array(np.random.randint(1, high=20, size=data_shape, dtype=input_dtype)),
 
     }
     params = {
-        "weight": tvm.nd.array(np.random.randint(1, high=200, size=weight_shape, dtype=input_dtype)),
+        "weight": tvm.nd.array(np.random.randint(1, high=20, size=weight_shape, dtype=input_dtype)),
     }
     print("Testing {0: <50}".format("QNN pattern"), end="")
     verify_vsi_result(inputs, out, params, data_shape, out_shape, output_dtype)
@@ -1614,8 +1613,8 @@ if __name__ == "__main__":
     #test_float_leaky_relu()
     #test_uint8_leaky_relu()
     #test_float_softmax()
-    test_float32_conv2d_permute()
-    test_float32_depthwise_conv2d_permute()
+    #test_float32_conv2d_permute()
+    #test_float32_depthwise_conv2d_permute()
     #test_float_reshape()
     #test_float_tranpose()
     #test_float_relu6()
@@ -1640,7 +1639,7 @@ if __name__ == "__main__":
     #test_float_batch_norm()
     #test_uint8_fullconnected()
     #test_uint8_argmin()
-    #test_uint8_reshape()
+    #test_uint8_squeeze()
     #test_uint8_depthtospace()
     #test_qnn_sub()
     #test_qnn_multiply()
@@ -1653,5 +1652,5 @@ if __name__ == "__main__":
     #test_uint8_mean()
     #test_requantize()
     #test_transpose_conv2d_pattern()
-    #test_uint8_transpose_conv2d_pattern()
-    # test_uint8_tanh()
+    test_uint8_transpose_conv2d_pattern()
+    #test_uint8_tanh()

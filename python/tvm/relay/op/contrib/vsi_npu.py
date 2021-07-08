@@ -126,9 +126,8 @@ def vsi_npu_pattern_table():
         return pattern
 
     def qnn_deconv_pattern():
-        pattern = is_op("nn.dilate")(wildcard())
-        pattern = is_op("qnn.conv2d")(
-            pattern, is_constant(), is_constant(), is_constant(), is_constant(), is_constant()
+        pattern = is_op("qnn.conv2d_transpose")(
+            wildcard(), is_constant(), is_constant(), is_constant(), is_constant(), is_constant()
         )    
         pattern = is_op("qnn.requantize")(
             pattern, is_constant(), is_constant(), is_constant(), is_constant()

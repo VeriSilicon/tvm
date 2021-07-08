@@ -132,10 +132,8 @@ class VsiNpuQnnDeconv : public OpSetup {
  public:
   using OpSetup::OpSetup;
   Expr weight_key_;
-  Expr dilate_key_;
   Expr requantize_key_;
   Call conv_;
-  Call dilate_;
 
  public:
   void SetupOperand(const CallNode* cn, tim::vx::Quantization& quant_info,

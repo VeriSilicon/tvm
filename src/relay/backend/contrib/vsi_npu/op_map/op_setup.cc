@@ -376,7 +376,6 @@ void VsiNpuQnnDeconv::SetupOperand(const CallNode* cn, tim::vx::Quantization& qu
   // extract calls in pattern
   Call requantize = Downcast<Call>(expr);
   conv_ = Downcast<Call>(requantize->args[0]);
-  dilate_ = Downcast<Call>(conv_->args[0]);
 
   input_key_ = call_->args[Input_Field::arg_pos];
   weight_key_ = conv_->args[Weight_Field::arg_pos];
@@ -397,25 +396,13 @@ void VsiNpuQnnDeconv::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx
   UpdateInputTableInfo(vxOpmap_tbl, weight_key_, graph.get());
   UpdateOutputTableInfo(vxOpmap_tbl, expr_key_, graph.get());
 
-  int oc_count = static_cast<int>(vxOpmap_tbl[expr_key_]->specs_[0].shape_[0]);
+  TvxDeConv2dAttrs tvx_attrs(conv_);
 
-  TvxConv2dAttrs tvx_attrs(conv_);
-  TvxDilateAttrs tvx_dilate_attrs(dilate_);
-
-  uint32_t kernel_size_h,kernel_size_w;
-  if(tvx_attrs.kernel_size.size() == 4){
-    kernel_size_h = tvx_attrs.kernel_size[1];
-    kernel_size_w = tvx_attrs.kernel_size[2];
-  }else if(tvx_attrs.kernel_size.size() == 2){
-    kernel_size_h = tvx_attrs.kernel_size[0];
-    kernel_size_w = tvx_attrs.kernel_size[1];
-  }
-  
   auto op = graph->CreateOperation<tim::vx::ops::DeConv2d>(
-      oc_count, tvx_attrs.pad_type, std::array<uint32_t, 2>{kernel_size_h, kernel_size_w},
-      std::array<uint32_t, 2>{tvx_dilate_attrs.strides[1],tvx_dilate_attrs.strides[2]},
+      tvx_attrs.channels, tvx_attrs.pad_type, std::array<uint32_t, 2>{tvx_attrs.kernel_size[0], tvx_attrs.kernel_size[1]},
+      std::array<uint32_t, 2>{tvx_attrs.strides[0],tvx_attrs.strides[1]},
       std::array<uint32_t, 2>{0, 0},
-      tim::vx::DataLayout::CWHN, tim::vx::DataLayout::OcIcWH);
+      tim::vx::DataLayout::CWHN, tim::vx::DataLayout::WHIcOc);
 
   (*op).BindInputs({vxOpmap_tbl[input_key_]->ptensors_[0], vxOpmap_tbl[weight_key_]->ptensors_[0]});
   (*op).BindOutput(vxOpmap_tbl[expr_key_]->ptensors_[0]);
