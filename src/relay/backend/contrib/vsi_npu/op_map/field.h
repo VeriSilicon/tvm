@@ -34,11 +34,13 @@ struct Field_Quant_Operand {
       dataType = tim::vx::DataType::INT8;
     } else if (dtype.is_int() && dtype.bits() == 32) {
       dataType = tim::vx::DataType::INT32;
-    } else if (dtype.is_float()) {
-      dataType = tim::vx::DataType::FLOAT32;
-    } else if (dtype.is_bool() && dtype.bits() == 1) {
-      dataType = tim::vx::DataType::BOOL8;
     }
+    
+    // else if (dtype.is_float()) {
+    //   dataType = tim::vx::DataType::FLOAT32;
+    // } else if (dtype.is_bool() && dtype.bits() == 1) {
+    //   dataType = tim::vx::DataType::BOOL8;
+    // }
 
     shape_setup(c, Idx, shape);
     AsConstant(c1->args[Scale_Idx], &scale);

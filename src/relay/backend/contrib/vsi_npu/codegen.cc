@@ -209,12 +209,14 @@ void TensorMakerImpl::InferCall(const CallNode* cn) {
     auto comp = fn->GetAttr<String>(attr::kComposite);
     CHECK(comp.defined());
     name = comp.value();
+    std::cout<<"########################"<<name<<std::endl;
     if (func_node_table.find(name) != func_node_table.end()) {
       func_node_table[name](vxOpmap_tbl_, expr);
       vxOpmap_tbl_[expr]->SetupOperand(cn,out_quant,vxOpmap_tbl_);
     }
   } else if (const auto *fn = cn->op.as<OpNode>()) {
     name = fn->name;
+    std::cout<<"########################"<<name<<std::endl;
     if (call_node_table.find(name) != call_node_table.end()) {
       call_node_table[name](vxOpmap_tbl_, expr);
       vxOpmap_tbl_[expr]->SetupOperand(cn,out_quant,vxOpmap_tbl_);

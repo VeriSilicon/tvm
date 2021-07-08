@@ -103,61 +103,29 @@ void VsiNpuQnnConv2d::SetupOperand(const CallNode* cn, tim::vx::Quantization& qu
   Call add = Downcast<Call>(requantize->args[0]);
   conv_ = Downcast<Call>(add->args[0]);
 
-  if (vxOpmap_tbl[expr_key_]->specs_[0].datatype_ == tim::vx::DataType::UINT8) {
-    using Input_Field = Field_ASYMM_U8<0, 4, 2, tim::vx::TensorAttribute::TRANSIENT,
-                                       tim::vx::DataType::UINT8, tim::vx::QuantType::ASYMMETRIC>;
-    using Weight_Field = Field_ASYMM_U8<1, 5, 3, tim::vx::TensorAttribute::CONSTANT,
-                                        tim::vx::DataType::UINT8, tim::vx::QuantType::ASYMMETRIC>;
+  using Input_Field = Field_Quant_Operand<0, 4, 2>;
+  using Weight_Field = Field_Quant_Operand<1, 5, 3>;
+  using Bias_Field = Field_Quant_Operand<1, 1, 2>;
 
-    using Bias_Field = Field_ASYMM_U8<1, 1, 2, tim::vx::TensorAttribute::CONSTANT,
-                                      tim::vx::DataType::INT32, tim::vx::QuantType::ASYMMETRIC>;
-    input_key_ = call_->args[Input_Field::arg_pos];
-    weight_key_ = conv_->args[Weight_Field::arg_pos];
-    bias_key_ = add->args[Bias_Field::arg_pos];
+  input_key_ = call_->args[Input_Field::arg_pos];
+  weight_key_ = conv_->args[Weight_Field::arg_pos];
+  bias_key_ = add->args[Bias_Field::arg_pos];
 
-    if (vxOpmap_tbl.find(input_key_) == vxOpmap_tbl.end()) {
-      vxOpmap_tbl[input_key_] =
-          std::make_shared<OpSetup>(Input_Field::AsTimVxTensorSpec(conv_, conv_));
-    }
-
-    tim::vx::TensorSpec weight_spec = Weight_Field::AsTimVxTensorSpec(conv_, conv_);
-    tim::vx::TensorSpec bias_spec = Bias_Field::AsTimVxTensorSpec(add, requantize);
-
-    vxOpmap_tbl[weight_key_] =
-        std::make_shared<OpSetup>(Weight_Field::AsTimVxTensorSpec(conv_, conv_));
-    bias_spec.shape_.resize(1);
-    bias_spec.quantization_.Scales()[0] =
-        weight_spec.quantization_.Scales()[0] *
-        vxOpmap_tbl[input_key_]->specs_[0].quantization_.Scales()[0];
-    vxOpmap_tbl[bias_key_] = std::make_shared<OpSetup>(bias_spec);
-  }else if(vxOpmap_tbl[expr_key_]->specs_[0].datatype_ == tim::vx::DataType::INT8){
-    using Input_Field = Field_ASYMM_U8<0, 4, 2, tim::vx::TensorAttribute::TRANSIENT,
-                                       tim::vx::DataType::INT8, tim::vx::QuantType::ASYMMETRIC>;
-    using Weight_Field = Field_ASYMM_U8<1, 5, 3, tim::vx::TensorAttribute::CONSTANT,
-                                        tim::vx::DataType::INT8, tim::vx::QuantType::ASYMMETRIC>;
-
-    using Bias_Field = Field_ASYMM_U8<1, 1, 2, tim::vx::TensorAttribute::CONSTANT,
-                                      tim::vx::DataType::INT32, tim::vx::QuantType::ASYMMETRIC>;
-    input_key_ = call_->args[Input_Field::arg_pos];
-    weight_key_ = conv_->args[Weight_Field::arg_pos];
-    bias_key_ = add->args[Bias_Field::arg_pos];
-
-    if (vxOpmap_tbl.find(input_key_) == vxOpmap_tbl.end()) {
-      vxOpmap_tbl[input_key_] =
-          std::make_shared<OpSetup>(Input_Field::AsTimVxTensorSpec(conv_, conv_));
-    }
-
-    tim::vx::TensorSpec weight_spec = Weight_Field::AsTimVxTensorSpec(conv_, conv_);
-    tim::vx::TensorSpec bias_spec = Bias_Field::AsTimVxTensorSpec(add, requantize);
-
-    vxOpmap_tbl[weight_key_] =
-        std::make_shared<OpSetup>(Weight_Field::AsTimVxTensorSpec(conv_, conv_));
-    bias_spec.shape_.resize(1);
-    bias_spec.quantization_.Scales()[0] =
-        weight_spec.quantization_.Scales()[0] *
-        vxOpmap_tbl[input_key_]->specs_[0].quantization_.Scales()[0];
-    vxOpmap_tbl[bias_key_] = std::make_shared<OpSetup>(bias_spec);
+  if (vxOpmap_tbl.find(input_key_) == vxOpmap_tbl.end()) {
+    vxOpmap_tbl[input_key_] =
+        std::make_shared<OpSetup>(Input_Field::AsTimVxTensorSpec(conv_, conv_));
   }
+
+  tim::vx::TensorSpec weight_spec = Weight_Field::AsTimVxTensorSpec(conv_, conv_);
+  tim::vx::TensorSpec bias_spec = Bias_Field::AsTimVxTensorSpec(add, requantize);
+
+  vxOpmap_tbl[weight_key_] =
+      std::make_shared<OpSetup>(Weight_Field::AsTimVxTensorSpec(conv_, conv_));
+  bias_spec.shape_.resize(1);
+  bias_spec.quantization_.Scales()[0] =
+      weight_spec.quantization_.Scales()[0] *
+      vxOpmap_tbl[input_key_]->specs_[0].quantization_.Scales()[0];
+  vxOpmap_tbl[bias_key_] = std::make_shared<OpSetup>(bias_spec);
   
   UpdateOutputQuantInfo(requantize, kRequant_output_scale_idx, kRequant_output_zp_idx, quant_info);
 };
@@ -303,20 +271,12 @@ void QnnSingleInputOpSetup::SetupOperand(const CallNode* cn, tim::vx::Quantizati
     Call quantize = Downcast<Call>(expr);
     op_ = Downcast<Call>(quantize->args[0]);
     Call dequantize = Downcast<Call>(op_->args[0]);
-  if (vxOpmap_tbl[expr_key_]->specs_[0].datatype_ == tim::vx::DataType::UINT8) {
-    using Input_Field = Field_ASYMM_U8<0, 1, 2, tim::vx::TensorAttribute::TRANSIENT,
-                                       tim::vx::DataType::UINT8, tim::vx::QuantType::ASYMMETRIC>;
+
+    using Input_Field = Field_Quant_Operand<0, 1, 2>;
 
     input_key_ = call_->args[Input_Field::arg_pos];
     vxOpmap_tbl[input_key_] =
         std::make_shared<OpSetup>(Input_Field::AsTimVxTensorSpec(dequantize, dequantize));
-  } else if (vxOpmap_tbl[expr_key_]->specs_[0].datatype_ == tim::vx::DataType::INT8) {
-    using Input_Field = Field_ASYMM_U8<0, 1, 2, tim::vx::TensorAttribute::TRANSIENT,
-                                       tim::vx::DataType::INT8, tim::vx::QuantType::ASYMMETRIC>;
-    input_key_ = call_->args[Input_Field::arg_pos];
-    vxOpmap_tbl[input_key_] =
-        std::make_shared<OpSetup>(Input_Field::AsTimVxTensorSpec(dequantize, dequantize));
-  }
 
   UpdateOutputQuantInfo(quantize, kdequantize_output_scale_idx, kdequantize_output_zp_idx,
                         quant_info);
@@ -451,48 +411,17 @@ void ElementWiseQnnOp::SetupOperand(const CallNode* cn, tim::vx::Quantization& q
   call_ = GetRef<Call>(cn);
   expr_key_ = GetRef<Expr>(cn);
 
-  if (vxOpmap_tbl[expr_key_]->specs_[0].datatype_ == tim::vx::DataType::UINT8) {
-    using Input_0 = Field_ASYMM_U8<0, 2, 3, tim::vx::TensorAttribute::TRANSIENT,
-                                   tim::vx::DataType::UINT8, tim::vx::QuantType::ASYMMETRIC>;
-    using Input_1 =
-        Field_NoAttribute_U8<1, 4, 5, tim::vx::DataType::UINT8, tim::vx::QuantType::ASYMMETRIC>;
+  using Input_0 = Field_Quant_Operand<0, 2, 3>;
+  using Input_1 = Field_Quant_Operand<1, 4, 5>;
 
-    input_key_ = call_->args[Input_0::arg_pos];
-    if (vxOpmap_tbl.find(input_key_) == vxOpmap_tbl.end()) {
-      vxOpmap_tbl[input_key_] = std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_, call_));
-    }
+  input_key_ = call_->args[Input_0::arg_pos];
+  input2_key_ = call_->args[Input_1::arg_pos];
+  if (vxOpmap_tbl.find(input_key_) == vxOpmap_tbl.end()) {
+    vxOpmap_tbl[input_key_] = std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_, call_));
+  }
 
-    input2_key_ = call_->args[Input_1::arg_pos];
-    if (vxOpmap_tbl.find(input2_key_) == vxOpmap_tbl.end()) { 
-      if (input2_key_->IsInstance<ConstantNode>()) {
-        vxOpmap_tbl[input2_key_] = std::make_shared<OpSetup>(
-            Input_1::AsTimVxTensorSpec(call_, tim::vx::TensorAttribute::CONSTANT));
-      } else {
-        vxOpmap_tbl[input2_key_] = std::make_shared<OpSetup>(
-            Input_1::AsTimVxTensorSpec(call_, tim::vx::TensorAttribute::TRANSIENT));
-      }
-    }
-  } else if (vxOpmap_tbl[expr_key_]->specs_[0].datatype_ == tim::vx::DataType::INT8) {
-    using Input_0 = Field_ASYMM_U8<0, 2, 3, tim::vx::TensorAttribute::TRANSIENT,
-                                   tim::vx::DataType::INT8, tim::vx::QuantType::ASYMMETRIC>;
-    using Input_1 =
-        Field_NoAttribute_U8<1, 4, 5, tim::vx::DataType::INT8, tim::vx::QuantType::ASYMMETRIC>;
-
-    input_key_ = call_->args[Input_0::arg_pos];
-    if (vxOpmap_tbl.find(input_key_) == vxOpmap_tbl.end()) {
-      vxOpmap_tbl[input_key_] = std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_, call_));
-    }
-
-    input2_key_ = call_->args[Input_1::arg_pos];
-    if (vxOpmap_tbl.find(input2_key_) == vxOpmap_tbl.end()) {
-      if (input2_key_->IsInstance<ConstantNode>()) {
-        vxOpmap_tbl[input2_key_] = std::make_shared<OpSetup>(
-            Input_1::AsTimVxTensorSpec(call_, tim::vx::TensorAttribute::CONSTANT));
-      } else {
-        vxOpmap_tbl[input2_key_] = std::make_shared<OpSetup>(
-            Input_1::AsTimVxTensorSpec(call_, tim::vx::TensorAttribute::TRANSIENT));
-      }
-    }
+  if (vxOpmap_tbl.find(input2_key_) == vxOpmap_tbl.end()) {
+    vxOpmap_tbl[input2_key_] = std::make_shared<OpSetup>(Input_1::AsTimVxTensorSpec(call_, call_));
   }
   UpdateOutputQuantInfo(call_, out_scale_idx, out_zp_idx, quant_info);
 }
@@ -736,14 +665,10 @@ void VsiNpuQnnDense::SetupOperand(const CallNode* cn, tim::vx::Quantization& qua
   Call add = Downcast<Call>(requantize->args[0]);
   dense_ = Downcast<Call>(add->args[0]);
 
-  if(vxOpmap_tbl[expr_key_]->specs_[0].datatype_ == tim::vx::DataType::UINT8){
-  using Input_Field = Field_ASYMM_U8<0, 4, 2, tim::vx::TensorAttribute::TRANSIENT,
-                                     tim::vx::DataType::UINT8, tim::vx::QuantType::ASYMMETRIC>;
-  using Weight_Field = Field_ASYMM_U8<1, 5, 3, tim::vx::TensorAttribute::CONSTANT,
-                                      tim::vx::DataType::UINT8, tim::vx::QuantType::ASYMMETRIC>;
+  using Input_Field = Field_Quant_Operand<0, 4, 2>;
+  using Weight_Field = Field_Quant_Operand<1, 5, 3>;
 
-  using Bias_Field = Field_ASYMM_U8<1, 1, 2, tim::vx::TensorAttribute::CONSTANT,
-                                    tim::vx::DataType::INT32, tim::vx::QuantType::ASYMMETRIC>;
+  using Bias_Field = Field_Quant_Operand<1, 1, 2>;
 
   input_key_ = call_->args[Input_Field::arg_pos];
   weight_key_ = dense_->args[Weight_Field::arg_pos];
@@ -761,32 +686,7 @@ void VsiNpuQnnDense::SetupOperand(const CallNode* cn, tim::vx::Quantization& qua
       vxOpmap_tbl[input_key_]->specs_[0].quantization_.Scales()[0];
 
   vxOpmap_tbl[bias_key_] = std::make_shared<OpSetup>(bias_spec);
-  } else if (vxOpmap_tbl[expr_key_]->specs_[0].datatype_ == tim::vx::DataType::INT8) {
-    using Input_Field = Field_ASYMM_U8<0, 4, 2, tim::vx::TensorAttribute::TRANSIENT,
-                                       tim::vx::DataType::INT8, tim::vx::QuantType::ASYMMETRIC>;
-    using Weight_Field = Field_ASYMM_U8<1, 5, 3, tim::vx::TensorAttribute::CONSTANT,
-                                        tim::vx::DataType::INT8, tim::vx::QuantType::ASYMMETRIC>;
 
-    using Bias_Field = Field_ASYMM_U8<1, 1, 2, tim::vx::TensorAttribute::CONSTANT,
-                                      tim::vx::DataType::INT32, tim::vx::QuantType::ASYMMETRIC>;
-
-    input_key_ = call_->args[Input_Field::arg_pos];
-    weight_key_ = dense_->args[Weight_Field::arg_pos];
-    bias_key_ = add->args[Bias_Field::arg_pos];
-
-    vxOpmap_tbl[input_key_] =
-        std::make_shared<OpSetup>(Input_Field::AsTimVxTensorSpec(dense_, dense_));
-    tim::vx::TensorSpec weight_spec = Weight_Field::AsTimVxTensorSpec(dense_, dense_);
-    tim::vx::TensorSpec bias_spec = Bias_Field::AsTimVxTensorSpec(add, requantize);
-    vxOpmap_tbl[weight_key_] =
-        std::make_shared<OpSetup>(Weight_Field::AsTimVxTensorSpec(dense_, dense_));
-    bias_spec.shape_.resize(1);
-    bias_spec.quantization_.Scales()[0] =
-        weight_spec.quantization_.Scales()[0] *
-        vxOpmap_tbl[input_key_]->specs_[0].quantization_.Scales()[0];
-
-    vxOpmap_tbl[bias_key_] = std::make_shared<OpSetup>(bias_spec);
-  }
   UpdateOutputQuantInfo(requantize, kRequant_output_scale_idx, kRequant_output_zp_idx, quant_info);
 };
 
@@ -876,21 +776,9 @@ void QnnRequantize::SetupOperand(const CallNode* cn, tim::vx::Quantization& quan
   call_ = GetRef<Call>(cn);
   expr_key_ = GetRef<Expr>(cn);
 
-  if(vxOpmap_tbl[expr_key_]->specs_[0].datatype_ == tim::vx::DataType::INT8){
-    using Input_0 = Field_ASYMM_U8<0, 1, 2, tim::vx::TensorAttribute::TRANSIENT,
-                                 tim::vx::DataType::UINT8, tim::vx::QuantType::ASYMMETRIC>;
-    input_key_ = call_->args[Input_0::arg_pos];
-    if (vxOpmap_tbl.find(input_key_) != vxOpmap_tbl.end()) {
-      return;
-    }
-    vxOpmap_tbl[input_key_] = std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_, call_));
-  }else if(vxOpmap_tbl[expr_key_]->specs_[0].datatype_ == tim::vx::DataType::UINT8){
-    using Input_0 = Field_ASYMM_U8<0, 1, 2, tim::vx::TensorAttribute::TRANSIENT,
-                                 tim::vx::DataType::INT8, tim::vx::QuantType::ASYMMETRIC>;
-    input_key_ = call_->args[Input_0::arg_pos];
-    if (vxOpmap_tbl.find(input_key_) != vxOpmap_tbl.end()) {
-      return;
-    }
+  using Input_0 = Field_Quant_Operand<0, 1, 2>;
+  input_key_ = call_->args[Input_0::arg_pos];
+  if (vxOpmap_tbl.find(input_key_) == vxOpmap_tbl.end()) {
     vxOpmap_tbl[input_key_] = std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_, call_));
   }
 
