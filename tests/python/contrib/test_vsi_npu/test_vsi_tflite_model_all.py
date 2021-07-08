@@ -123,33 +123,43 @@ def print_top5(input):
     for i in range(k):
         print("{} : {}".format(n_arg0[i], n[n_arg1[i]]))
 
-# shape = (1, 256, 256, 1)
-# shape = (1, 224, 224, 3)
-input_tensor_name = "input"
+def get_model(model_list, model_name):
+    for model in model_list:
+        if (model['name'] == model_name):
+            return model
 
-shape = (1,513,513,3)
-#input_tensor_name = "MobilenetV2/MobilenetV2/input"
 
-#shape = (1,1,1,320)
-#input_tensor_name = "AvgPool2D/AvgPool"
+model_list = [
+    {'name': 'inception_v1_224_quant.tflite',
+     'shape': (1, 224, 224, 3),
+     'input_tensor_name': 'input_0:out0',
+     'dtype': "uint8"},
+    {'name': 'efficientnet-edgetpu-S_quant.tflite',
+     'shape': (1, 224, 224, 3),
+     'input_tensor_name': 'images',
+     'dtype': "uint8"
+     },
+    {'name': 'deeplabv3_mnv2_pascal_quant.tflite',
+     'shape': (1, 513, 513, 3),
+     'input_tensor_name': 'MobilenetV2/MobilenetV2/input',
+     'dtype': "uint8"},
+    {'name': 'yolov3-tiny_uint8_acuity.tflite',
+     'shape': (1, 416, 416, 3),
+     'input_tensor_name': 'input_0:out0',
+     'dtype': "uint8"},
+]
 
-# shape = (1, 416, 416, 3)
-# input_tensor_name = "input_0:out0"
-
-model_name = os.environ["TFLITE_MODEL"]
+model_full_name = os.environ["TFLITE_MODEL"]
+(_, model_name) = os.path.split(model_full_name)
 DTYPE = "uint8"
-wait=input("1. press any key and continue...")
+
+model = get_model(model_list, model_name)
+print (model)
+shape = model['shape']
+input_tensor_name = model['input_tensor_name']
+wait=input("press any key and continue...")
 
 path = "./"
-# fake data
-#input_data = np.ones(shape, "uint8")
-
-# load data from file
-#n1 = np.loadtxt(path + "1/vsi_output.txt", dtype=np.float32)
-#input_data = n1.astype(np.uint8)
-
-# load data from image
-#img = Image.open(path + "city_513x513.jpg")
 img = Image.open(path + "space_shuttle_224x224.jpg")
 img = img.resize((shape[1], shape[2]))
 n1 = np.array(img)
@@ -161,8 +171,8 @@ input_data = n1.astype(np.uint8)
 vsi_input_data = {
     input_tensor_name: tvm.nd.array(input_data),
 }
-ref_output = get_ref_result(shape, model_name,input_data,input_tensor_name,DTYPE)
-vsi_output = compile_tflite_model(shape, model_name,vsi_input_data,input_tensor_name,DTYPE)
+ref_output = get_ref_result(shape, model_full_name,input_data,input_tensor_name,DTYPE)
+vsi_output = compile_tflite_model(shape, model_full_name,vsi_input_data,input_tensor_name,DTYPE)
 
 #print("ref_output:",ref_output)
 #print("vsi_output",vsi_output)

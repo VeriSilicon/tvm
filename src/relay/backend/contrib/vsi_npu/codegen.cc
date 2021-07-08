@@ -123,35 +123,22 @@ TensorMakerImpl::Create(const Expr &expr) {
 
   for (size_t i = 0; i < output_size; i++) {
     auto dtype = tensor_node[i].dtype;
+    tvx::DataType tvx_type = tvx::DataType::FLOAT32;
     if (dtype.is_float()) {
-      auto output_Opsetup = std::make_shared<OpSetup>(tvx::TensorSpec(
-          tvx::DataType::FLOAT32, o_shape, tvx::TensorAttribute::OUTPUT));
-      vxOpmap_tbl_[expr] = output_Opsetup;
-    } else if(dtype.is_bool()){
-      auto output_Opsetup = std::make_shared<OpSetup>(
-          tvx::TensorSpec(tvx::DataType::BOOL8, o_shape,
-                          tvx::TensorAttribute::OUTPUT),
-          std::make_shared<CallbackExpr>(expr));
-      vxOpmap_tbl_[expr] = output_Opsetup;
+      tvx_type = tvx::DataType::FLOAT32;
+    } else if (dtype.is_bool()) {
+      tvx_type = tvx::DataType::BOOL8;
     } else if (dtype.is_uint()) {
-      auto output_Opsetup = std::make_shared<OpSetup>(
-          tvx::TensorSpec(tvx::DataType::UINT8, o_shape,
-                          tvx::TensorAttribute::OUTPUT),
-          std::make_shared<CallbackExpr>(expr));
-      vxOpmap_tbl_[expr] = output_Opsetup;
-    } else if(dtype.is_int() || dtype.bits() == 8){
-      auto output_Opsetup = std::make_shared<OpSetup>(
-          tvx::TensorSpec(tvx::DataType::INT8, o_shape,
-                          tvx::TensorAttribute::OUTPUT),
-          std::make_shared<CallbackExpr>(expr));
-      vxOpmap_tbl_[expr] = output_Opsetup;
-    }else if (dtype.is_int()) {
-      auto output_Opsetup = std::make_shared<OpSetup>(
-          tvx::TensorSpec(tvx::DataType::INT32, o_shape,
-                          tvx::TensorAttribute::OUTPUT),
-          std::make_shared<CallbackExpr>(expr));
-      vxOpmap_tbl_[expr] = output_Opsetup;
+      tvx_type = tvx::DataType::UINT8;
+    } else if (dtype.is_int() || dtype.bits() == 8) {
+      tvx_type = tvx::DataType::INT8;
+    } else if (dtype.is_int()) {
+      tvx_type = tvx::DataType::INT32;
     }
+    auto output_Opsetup = std::make_shared<OpSetup>(
+        tvx::TensorSpec(tvx_type, o_shape, tvx::TensorAttribute::OUTPUT),
+        std::make_shared<CallbackExpr>(expr));
+    vxOpmap_tbl_[expr] = output_Opsetup;
   }
   VisitInferred(expr);
   return vxOpmap_tbl_;

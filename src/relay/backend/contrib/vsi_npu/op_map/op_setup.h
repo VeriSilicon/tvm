@@ -5,7 +5,7 @@
 #include <tim/vx/operation.h>
 #include <tvm/relay/expr.h>
 #include <tvm/relay/function.h>
-#include "filed.h"
+#include "field.h"
 
 #include <memory>
 #include "tim/vx/graph.h"
