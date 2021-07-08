@@ -363,10 +363,8 @@ void VsiNpuQnnDeconv::SetupOperand(const CallNode* cn, tim::vx::Quantization& qu
   call_ = GetRef<Call>(cn);
   expr_key_ = GetRef<Expr>(cn);
 
-  using Input_Field = Field_ASYMM_U8<0, 4, 2, tim::vx::TensorAttribute::TRANSIENT,
-                                     tim::vx::DataType::UINT8, tim::vx::QuantType::ASYMMETRIC>;
-  using Weight_Field = Field_ASYMM_U8<1, 5, 3, tim::vx::TensorAttribute::CONSTANT,
-                                      tim::vx::DataType::UINT8, tim::vx::QuantType::ASYMMETRIC>;
+  using Input_Field = Field_Quant_Operand<0, 4, 2>;
+  using Weight_Field = Field_Quant_Operand<1, 5, 3>;
 
   constexpr uint32_t kRequant_output_scale_idx = 3;
   constexpr uint32_t kRequant_output_zp_idx = 4;
@@ -856,8 +854,7 @@ std::shared_ptr<tim::vx::Operation> Quantize::CreateOperation(std::shared_ptr<ti
 
 void Dequantize::SetupOperand(const CallNode* cn, tim::vx::Quantization& quant_info,
                               std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
-  using Input_0 = Field_ASYMM_U8<0, 1, 2, tim::vx::TensorAttribute::TRANSIENT,
-                                 tim::vx::DataType::UINT8, tim::vx::QuantType::ASYMMETRIC>;
+  using Input_0 = Field_Quant_Operand<0, 1, 2>;
 
   call_ = GetRef<Call>(cn);
   expr_key_ = GetRef<Expr>(cn);

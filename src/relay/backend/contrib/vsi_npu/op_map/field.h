@@ -11,6 +11,46 @@ namespace vsi_npu {
 namespace op_map {
 void shape_setup(const Call& c, uint32_t arg_idx, tim::vx::ShapeType& result_shape);
 
+template <uint32_t Idx, uint32_t Scale_Idx, uint32_t Zp_Idx,
+          tim::vx::QuantType QType = tim::vx::QuantType::ASYMMETRIC>
+struct Field_Quant_Operand {
+  static const uint32_t arg_pos = Idx;
+
+  static tim::vx::TensorSpec AsTimVxTensorSpec(const Call& c, const Call& c1) {
+    tim::vx::ShapeType shape;
+    tim::vx::DataType dataType;
+    tim::vx::TensorAttribute role;
+    float scale = 0;
+    int32_t zp = 0;
+
+    Expr expr = c->args[Idx];
+    auto dtype = expr->checked_type().as<TensorTypeNode>()->dtype;
+
+    role = expr->IsInstance<ConstantNode>() ? tim::vx::TensorAttribute::CONSTANT
+                                            : tim::vx::TensorAttribute::TRANSIENT;
+    if (dtype.is_uint()) {
+      dataType = tim::vx::DataType::UINT8;
+    } else if (dtype.is_int() && dtype.bits() == 8) {
+      dataType = tim::vx::DataType::INT8;
+    } else if (dtype.is_int() && dtype.bits() == 32) {
+      dataType = tim::vx::DataType::INT32;
+    } else if (dtype.is_float()) {
+      dataType = tim::vx::DataType::FLOAT32;
+    } else if (dtype.is_bool() && dtype.bits() == 1) {
+      dataType = tim::vx::DataType::BOOL8;
+    }
+
+    shape_setup(c, Idx, shape);
+    AsConstant(c1->args[Scale_Idx], &scale);
+    AsConstant(c1->args[Zp_Idx], &zp);
+
+    auto quant_spec = tim::vx::Quantization(QType, scale, zp);
+
+    tim::vx::TensorSpec spec(dataType, shape, role, quant_spec);
+    return spec;
+  }
+};
+
 template <uint32_t Idx, uint32_t Scale_Idx, uint32_t Zp_Idx, tim::vx::TensorAttribute Role,
           tim::vx::DataType DType, tim::vx::QuantType QType>
 struct Field_ASYMM_U8 {
