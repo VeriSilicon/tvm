@@ -67,9 +67,9 @@ struct Field_NoQuant_Operand {
   }
 };
 
-template <uint32_t Idx, uint32_t Scale_Idx, uint32_t Zp_Idx, tim::vx::TensorAttribute Role,
-          tim::vx::DataType DType, tim::vx::QuantType QType>
-struct Field_TUPLE_U8 {
+template <uint32_t Idx, uint32_t Scale_Idx, uint32_t Zp_Idx,
+          tim::vx::QuantType QType = tim::vx::QuantType::ASYMMETRIC>
+struct Field_TUPLE_QUANT_OPERAND {
   static const uint32_t arg_pos = Idx;
 
   static std::vector<tim::vx::TensorSpec> AsTimVxTensorSpec(const Call& c, const Call& c1) {
@@ -81,18 +81,23 @@ struct Field_TUPLE_U8 {
     uint32_t input_node_num = input_node_tensors_type.size();
     for (uint32_t i = 0; i < input_node_num; i++) {
       tim::vx::ShapeType shape;
+      tim::vx::DataType dataType;
+      float scale = 0;
+      int32_t zp = 0;
+
       std::transform(
           input_node_tensors_type[i].as<TensorTypeNode>()->shape.rbegin(),
           input_node_tensors_type[i].as<TensorTypeNode>()->shape.rend(), std::back_inserter(shape),
           [](const PrimExpr& dim) { return static_cast<int>(dim.as<IntImmNode>()->value); });
-      float scale = 0;
-      int32_t zp = 0;
 
       AsConstant<float>(input_node_scales[i], &scale);
       AsConstant<int>(input_node_zps[i], &zp);
 
+      auto dtype = input_node_tensors_type[i].as<TensorTypeNode>()->dtype;
+      dataType = GetTvxType(dtype);
+
       auto quant_spec = tim::vx::Quantization(QType, scale, zp);
-      tim::vx::TensorSpec spec(DType, shape, Role, quant_spec);
+      tim::vx::TensorSpec spec(dataType, shape, tim::vx::TensorAttribute::TRANSIENT, quant_spec);
       specs.push_back(spec);
     }
     return specs;

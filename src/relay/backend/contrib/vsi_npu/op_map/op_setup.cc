@@ -292,8 +292,7 @@ void QnnSingleInputOpSetup::SetupOperand(const CallNode* cn, tim::vx::Quantizati
 
 void VsiNpuConcat::SetupOperand(const CallNode* cn, tim::vx::Quantization& quant_info,
                                  std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
-  using Input_Field = Field_TUPLE_U8<0, 1, 2, tim::vx::TensorAttribute::TRANSIENT,
-                                     tim::vx::DataType::UINT8, tim::vx::QuantType::ASYMMETRIC>;
+  using Input_Field = Field_TUPLE_QUANT_OPERAND<0, 1, 2>;
   constexpr uint32_t kdequantize_output_scale_idx = 3;
   constexpr uint32_t kdequantize_output_zp_idx = 4;
   call_ = GetRef<Call>(cn);
