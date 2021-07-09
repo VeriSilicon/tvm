@@ -130,7 +130,7 @@ TensorMakerImpl::Create(const Expr &expr) {
       tvx_type = tvx::DataType::BOOL8;
     } else if (dtype.is_uint()) {
       tvx_type = tvx::DataType::UINT8;
-    } else if (dtype.is_int() || dtype.bits() == 8) {
+    } else if (dtype.is_int() && dtype.bits() == 8) {
       tvx_type = tvx::DataType::INT8;
     } else if (dtype.is_int()) {
       tvx_type = tvx::DataType::INT32;
@@ -182,7 +182,6 @@ static std::map<std::string, setup_operand_fun_ptr> call_node_table = {
   DEFINE_NODE_ITEM("logical_and", LogicalAnd),
   DEFINE_NODE_ITEM("logical_or", LogicalOr),
   DEFINE_NODE_ITEM("nn.pad", Pad),
-  DEFINE_NODE_ITEM("nn.conv2d_transpose", DeConv),
   DEFINE_NODE_ITEM("nn.leaky_relu", LeakyRelu),
   DEFINE_NODE_ITEM("qnn.requantize", QnnRequantize),
 };

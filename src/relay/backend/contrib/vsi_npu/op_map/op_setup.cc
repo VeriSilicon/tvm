@@ -167,14 +167,13 @@ void VsiNpuQnnConv2d::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx
 
 void VsiNpuQnnAvgPool::SetupOperand(const CallNode* cn, tim::vx::Quantization& quant_info,
                                     std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
-  using Input_Field = Field_NoDType<0, tim::vx::TensorAttribute::TRANSIENT>;
+  using Input_Field = Field_NoQuant_Operand<0>;
 
   call_ = GetRef<Call>(cn);
   expr_key_ = GetRef<Expr>(cn);
 
   const CallNode* callnode = cn->op.as<FunctionNode>()->body.as<CallNode>();
   auto expr = GetRef<Expr>(callnode);
-
   // extract calls in pattern
   Call cast_out = Downcast<Call>(expr);
   avgpool_ = Downcast<Call>(cast_out->args[0]);
@@ -190,8 +189,6 @@ void VsiNpuQnnAvgPool::SetupOperand(const CallNode* cn, tim::vx::Quantization& q
       std::make_shared<CallbackExpr>(input_key_, vxOpmap_tbl[expr_key_]->pCallbackexpr_);
   vxOpmap_tbl[input_key_] =
       std::make_shared<OpSetup>(Input_Field::AsTimVxTensorSpec(call_), input_callback);
-  vxOpmap_tbl[input_key_]->specs_[0].SetDataType(tvx::DataType::UINT8);
-
 };
 
 std::shared_ptr<tim::vx::Operation> VsiNpuQnnAvgPool::CreateOperation(std::shared_ptr<tim::vx::Graph> graph) {
@@ -205,7 +202,7 @@ std::shared_ptr<tim::vx::Operation> VsiNpuQnnAvgPool::CreateOperation(std::share
 
 void VsiNpuQnnMean::SetupOperand(const CallNode* cn, tim::vx::Quantization& quant_info,
                                     std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
-  using Input_Field = Field_NoDType<0, tim::vx::TensorAttribute::TRANSIENT>;
+  using Input_Field = Field_NoQuant_Operand<0>;
 
   constexpr uint32_t kRequant_intput_scale_idx = 1;
   constexpr uint32_t kRequant_input_zp_idx = 2;
@@ -230,12 +227,7 @@ void VsiNpuQnnMean::SetupOperand(const CallNode* cn, tim::vx::Quantization& quan
 
   tim::vx::Quantization input_quant_info;
   UpdateOutputQuantInfo(requantize, kRequant_intput_scale_idx, kRequant_input_zp_idx, input_quant_info);
-  if(vxOpmap_tbl[expr_key_]->specs_[0].datatype_ == tim::vx::DataType::UINT8){
-    vxOpmap_tbl[input_key_]->specs_[0].SetDataType(tvx::DataType::UINT8).SetQuantization(input_quant_info);
-  }else if(vxOpmap_tbl[expr_key_]->specs_[0].datatype_ == tim::vx::DataType::INT8){
-    vxOpmap_tbl[input_key_]->specs_[0].SetDataType(tvx::DataType::INT8).SetQuantization(input_quant_info);
-  }
-
+  vxOpmap_tbl[input_key_]->specs_[0].SetQuantization(input_quant_info);
   UpdateOutputQuantInfo(requantize, kRequant_output_scale_idx, kRequant_output_zp_idx, quant_info);
 };
 
@@ -259,24 +251,24 @@ void VsiNpuQnnSoftmax::SetupOperation(const CallNode* cn, std::shared_ptr<tim::v
 }
 
 void QnnSingleInputOpSetup::SetupOperand(const CallNode* cn, tim::vx::Quantization& quant_info,
-                  std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
-    constexpr uint32_t kdequantize_output_scale_idx = 1;
-    constexpr uint32_t kdequantize_output_zp_idx = 2;
-    call_ = GetRef<Call>(cn);
-    expr_key_ = GetRef<Expr>(cn);
+                                         std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
+  constexpr uint32_t kdequantize_output_scale_idx = 1;
+  constexpr uint32_t kdequantize_output_zp_idx = 2;
+  call_ = GetRef<Call>(cn);
+  expr_key_ = GetRef<Expr>(cn);
 
-    const CallNode* callnode = cn->op.as<FunctionNode>()->body.as<CallNode>();
-    auto expr = GetRef<Expr>(callnode);
-    // extract calls in pattern
-    Call quantize = Downcast<Call>(expr);
-    op_ = Downcast<Call>(quantize->args[0]);
-    Call dequantize = Downcast<Call>(op_->args[0]);
+  const CallNode* callnode = cn->op.as<FunctionNode>()->body.as<CallNode>();
+  auto expr = GetRef<Expr>(callnode);
+  // extract calls in pattern
+  Call quantize = Downcast<Call>(expr);
+  op_ = Downcast<Call>(quantize->args[0]);
+  Call dequantize = Downcast<Call>(op_->args[0]);
 
-    using Input_Field = Field_Quant_Operand<0, 1, 2>;
+  using Input_Field = Field_Quant_Operand<0, 1, 2>;
 
-    input_key_ = call_->args[Input_Field::arg_pos];
-    vxOpmap_tbl[input_key_] =
-        std::make_shared<OpSetup>(Input_Field::AsTimVxTensorSpec(dequantize, dequantize));
+  input_key_ = call_->args[Input_Field::arg_pos];
+  vxOpmap_tbl[input_key_] =
+      std::make_shared<OpSetup>(Input_Field::AsTimVxTensorSpec(dequantize, dequantize));
 
   UpdateOutputQuantInfo(quantize, kdequantize_output_scale_idx, kdequantize_output_zp_idx,
                         quant_info);
@@ -368,7 +360,7 @@ void VsiNpuQnnDeconv::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx
 
 void SingleFloatInputSetup::SetupOperand(const CallNode* cn, tim::vx::Quantization& quant_info,
                                          std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
-  using Input_0 = Field_Float32<0, tim::vx::TensorAttribute::TRANSIENT>;
+  using Input_0 = Field_NoQuant_Operand<0>;
   call_ = GetRef<Call>(cn);
   expr_key_ = GetRef<Expr>(cn);
   input_key_ = call_->args[Input_0::arg_pos];
@@ -438,8 +430,8 @@ void ElementWiseQnnOp::SetupOperation(const CallNode* cn, std::shared_ptr<tim::v
 
 void ElementWiseNotypeOp::SetupOperand(const CallNode* cn, tim::vx::Quantization& quant_info,
                                     std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
-  using Input_0 = Field_NoDType<0, tim::vx::TensorAttribute::TRANSIENT>;
-  using Input_1 = Field_NoDType<1, tim::vx::TensorAttribute::TRANSIENT>;
+  using Input_0 = Field_NoQuant_Operand<0>;
+  using Input_1 = Field_NoQuant_Operand<1>;
 
   call_ = GetRef<Call>(cn);
   expr_key_ = GetRef<Expr>(cn);
@@ -453,21 +445,21 @@ void ElementWiseNotypeOp::SetupOperand(const CallNode* cn, tim::vx::Quantization
   auto input2_callback =
       std::make_shared<CallbackExpr>(input2_key_, vxOpmap_tbl[expr_key_]->pCallbackexpr_);
 
-  auto dtype = input_key_->checked_type().as<TensorTypeNode>()->dtype;
+  //auto dtype = input_key_->checked_type().as<TensorTypeNode>()->dtype;
 
   vxOpmap_tbl[input_key_] = std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_),input_callback);
-  vxOpmap_tbl[input2_key_] = std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_),input2_callback);
+  vxOpmap_tbl[input2_key_] = std::make_shared<OpSetup>(Input_1::AsTimVxTensorSpec(call_),input2_callback);
 
-  if (dtype.is_float()) {
-    vxOpmap_tbl[input_key_]->specs_[0].SetDataType(tim::vx::DataType::FLOAT32);
-    vxOpmap_tbl[input2_key_]->specs_[0].SetDataType(tim::vx::DataType::FLOAT32);
-  } else if (dtype.is_uint()) {
-    vxOpmap_tbl[input_key_]->specs_[0].SetDataType(tim::vx::DataType::UINT8);
-    vxOpmap_tbl[input2_key_]->specs_[0].SetDataType(tim::vx::DataType::UINT8);
-  } else if (dtype.is_int()) {
-    vxOpmap_tbl[input_key_]->specs_[0].SetDataType(tim::vx::DataType::INT32);
-    vxOpmap_tbl[input2_key_]->specs_[0].SetDataType(tim::vx::DataType::INT32);
-  }
+  // if (dtype.is_float()) {
+  //   vxOpmap_tbl[input_key_]->specs_[0].SetDataType(tim::vx::DataType::FLOAT32);
+  //   vxOpmap_tbl[input2_key_]->specs_[0].SetDataType(tim::vx::DataType::FLOAT32);
+  // } else if (dtype.is_uint()) {
+  //   vxOpmap_tbl[input_key_]->specs_[0].SetDataType(tim::vx::DataType::UINT8);
+  //   vxOpmap_tbl[input2_key_]->specs_[0].SetDataType(tim::vx::DataType::UINT8);
+  // } else if (dtype.is_int()) {
+  //   vxOpmap_tbl[input_key_]->specs_[0].SetDataType(tim::vx::DataType::INT32);
+  //   vxOpmap_tbl[input2_key_]->specs_[0].SetDataType(tim::vx::DataType::INT32);
+  // }
 
   (void)quant_info;
 }
@@ -506,8 +498,9 @@ std::shared_ptr<tim::vx::Operation> QnnMul::CreateOperation(
 
 void TwoBoolInputSetup::SetupOperand(const CallNode* cn, tim::vx::Quantization& quant_info,
                                         std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
-  using Input_0 = Field_Bool<0, tim::vx::TensorAttribute::TRANSIENT>;
-  using Input_1 = Field_Bool<1, tim::vx::TensorAttribute::TRANSIENT>;
+  using Input_0 = Field_NoQuant_Operand<0>;
+  using Input_1 = Field_NoQuant_Operand<1>;
+
   call_ = GetRef<Call>(cn);
   expr_key_ = GetRef<Expr>(cn);
   input0_key_ = call_->args[Input_0::arg_pos];
@@ -545,21 +538,14 @@ void LogicalOr::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx::Grap
 
 void TwoFloatInputOpSetup::SetupOperand(const CallNode* cn, tim::vx::Quantization& quant_info,
                                         std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
-  using Input_0 = Field_Float32<0, tim::vx::TensorAttribute::TRANSIENT>;
-  using Input_1 = Field_NoAttribute_Float32<1>;
+  using Input_0 = Field_NoQuant_Operand<0>;
+  using Input_1 = Field_NoQuant_Operand<1>;
   call_ = GetRef<Call>(cn);
   expr_key_ = GetRef<Expr>(cn);
   input0_key_ = call_->args[Input_0::arg_pos];
   input1_key_ = call_->args[Input_1::arg_pos];
   vxOpmap_tbl[input0_key_] = std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_));
-  if (input1_key_->IsInstance<ConstantNode>()) {
-    vxOpmap_tbl[input1_key_] = std::make_shared<OpSetup>(
-        Input_1::AsTimVxTensorSpec(call_, tim::vx::TensorAttribute::CONSTANT));
-  } else {
-    vxOpmap_tbl[input1_key_] = std::make_shared<OpSetup>(
-        Input_1::AsTimVxTensorSpec(call_, tim::vx::TensorAttribute::TRANSIENT));
-    (void)quant_info;
-  };
+  vxOpmap_tbl[input1_key_] = std::make_shared<OpSetup>(Input_1::AsTimVxTensorSpec(call_));
 }
 
 void Add::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx::Graph> graph,
@@ -736,7 +722,7 @@ void Conv::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx::Graph> gr
 
 void Quantize::SetupOperand(const CallNode* cn, tim::vx::Quantization& quant_info,
                             std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
-  using Input_0 = Field_Float32<0, tim::vx::TensorAttribute::TRANSIENT>;
+  using Input_0 = Field_NoQuant_Operand<0>;
   constexpr uint32_t out_scale_idx = 1;
   constexpr uint32_t out_zp_idx = 2;
 
@@ -791,7 +777,7 @@ std::shared_ptr<tim::vx::Operation> QnnRequantize::CreateOperation(std::shared_p
 
 void NoTypeOpSetup::SetupOperand(const CallNode* cn, tim::vx::Quantization& quant_info,
                                  std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
-  using Input = Field_NoDType<0, tim::vx::TensorAttribute::TRANSIENT>;
+  using Input = Field_NoQuant_Operand<0>;
   call_ = GetRef<Call>(cn);
   expr_key_ = GetRef<Expr>(cn);
   input_key_ = call_->args[Input::arg_pos];
@@ -810,18 +796,6 @@ void NoTypeOpSetup::SetupOperand(const CallNode* cn, tim::vx::Quantization& quan
     vxOpmap_tbl[input_key_] =
       std::make_shared<OpSetup>(Input::AsTimVxTensorSpec(call_));
       vxOpmap_tbl[input_key_]->specs_[0].SetQuantization(output_quant);
-  }
-
-  auto dtype = input_key_->checked_type().as<TensorTypeNode>()->dtype;
-
-  if (dtype.is_float()) {
-    vxOpmap_tbl[input_key_]->specs_[0].SetDataType(tim::vx::DataType::FLOAT32);
-  } else if (dtype.is_uint()) {
-    vxOpmap_tbl[input_key_]->specs_[0].SetDataType(tim::vx::DataType::UINT8);
-  } else if (dtype.is_int() && dtype.bits() == 8) {
-    vxOpmap_tbl[input_key_]->specs_[0].SetDataType(tim::vx::DataType::INT8);
-  } else if (dtype.is_int()) {
-    vxOpmap_tbl[input_key_]->specs_[0].SetDataType(tim::vx::DataType::INT32);
   }
 }
 
@@ -925,54 +899,6 @@ void Pad::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx::Graph> gra
   auto op = graph->CreateOperation<tim::vx::ops::Pad>(front_size, back_size, 0);
 
   (*op).BindInput(vxOpmap_tbl[input_key_]->ptensors_[0]);
-  (*op).BindOutput(vxOpmap_tbl[expr_key_]->ptensors_[0]);
-}
-
-void DeConv::SetupOperand(const CallNode* cn, tim::vx::Quantization& quant_info,
-                                 std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
-  using Input_0 = Field_NoDType<0, tim::vx::TensorAttribute::TRANSIENT>;
-  using Input_1 = Field_NoDType<1, tim::vx::TensorAttribute::CONSTANT>;
-
-  call_ = GetRef<Call>(cn);
-  expr_key_ = GetRef<Expr>(cn);
-  input_key_ = call_->args[Input_0::arg_pos];
-  weight_key_ = call_->args[Input_1::arg_pos];
-
-  if (vxOpmap_tbl.find(input_key_) != vxOpmap_tbl.end()) {
-    return;
-  }
-
-  quant_info.SetType(tim::vx::QuantType::ASYMMETRIC).SetScales({1.0}).SetZeroPoints({0});
-
-  vxOpmap_tbl[input_key_] = std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_));
-  vxOpmap_tbl[input_key_]->specs_[0].SetQuantization(quant_info);
-
-  vxOpmap_tbl[weight_key_] = std::make_shared<OpSetup>(Input_1::AsTimVxTensorSpec(call_));
-  vxOpmap_tbl[weight_key_]->specs_[0].SetQuantization(quant_info);
-
-  vxOpmap_tbl[input_key_]->specs_[0].SetDataType(tim::vx::DataType::UINT8);
-  vxOpmap_tbl[weight_key_]->specs_[0].SetDataType(tim::vx::DataType::UINT8);
-}
-
-void DeConv::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx::Graph> graph,
-                            std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
-  UpdateInputTableInfo(vxOpmap_tbl, input_key_, graph.get());
-  UpdateInputTableInfo(vxOpmap_tbl, weight_key_, graph.get());
-  UpdateOutputTableInfo(vxOpmap_tbl, expr_key_, graph.get());
-
-  int oc_count = static_cast<int>(vxOpmap_tbl[expr_key_]->specs_[0].shape_[0]);
-
-  TvxDeconvAttrs tvx_attrs(call_);
-
-  auto op = graph->CreateOperation<tim::vx::ops::DeConv2d>(
-      oc_count, tvx_attrs.pad_type,
-      std::array<uint32_t, 2>{tvx_attrs.kernel_size[0], tvx_attrs.kernel_size[1]},
-      std::array<uint32_t, 2>{tvx_attrs.strides[0], tvx_attrs.strides[1]},
-      std::array<uint32_t, 2>{0, 0},
-      std::array<uint32_t, 4>{tvx_attrs.padding[0], tvx_attrs.padding[1], tvx_attrs.padding[2],
-                              tvx_attrs.padding[3]},
-      tvx_attrs.groups, tim::vx::DataLayout::CWHN, tim::vx::DataLayout::WHIcOc);
-  (*op).BindInputs({vxOpmap_tbl[input_key_]->ptensors_[0],vxOpmap_tbl[weight_key_]->ptensors_[0]});
   (*op).BindOutput(vxOpmap_tbl[expr_key_]->ptensors_[0]);
 }
 

@@ -269,28 +269,31 @@ def test_dropout():
 
 def test_qnn_add():
     data_dtype = "uint8"
-    data_shape = (1, 2, 2, 1)
-    out_shape = (1, 2, 2, 1)
+    data_shape = (1, 96, 96, 64)
+    data2_shape = (64,)
+    out_shape = (1, 96, 96, 64)
 
     x = relay.var("x", shape=data_shape, dtype=data_dtype)
-    y = relay.var("y", shape=data_shape, dtype=data_dtype)
+    y = relay.var("y", shape=data2_shape, dtype=data_dtype)
     out = relay.qnn.op.add(
         lhs=x,
         rhs=y,
-        lhs_scale=relay.const(0.00784314, "float32"),
-        lhs_zero_point=relay.const(127, "int32"),
-        rhs_scale=relay.const(0.00784314, "float32"),
-        rhs_zero_point=relay.const(127, "int32"),
-        output_scale=relay.const(0.00784314, "float32"),
-        output_zero_point=relay.const(127, "int32"),
+        lhs_scale=relay.const(0.020283, "float32"),
+        lhs_zero_point=relay.const(112, "int32"),
+        rhs_scale=relay.const(0.000316, "float32"),
+        rhs_zero_point=relay.const(119, "int32"),
+        output_scale=relay.const(0.020144, "float32"),
+        output_zero_point=relay.const(112, "int32"),
     )
 
     print("Testing {0: <50}".format("QNN.ADD"), end="")
     inputs = {
         "x": tvm.nd.array(np.random.randint(1, high=101, size=data_shape, dtype="uint8")),
+    }
+    params = {
         "y": tvm.nd.array(np.random.randint(1, high=101, size=data_shape, dtype="uint8")),
     }
-    verify_vsi_result(inputs, out, [], data_shape, out_shape, data_dtype)
+    verify_vsi_result(inputs, out,params, data_shape, out_shape, data_dtype)
 
 def test_float_add():
     dtype = "float32"
@@ -1222,7 +1225,7 @@ def test_uint8_depthwiseconv2d_pattern():
 
 
 def test_uint8_fullconnected():
-    input_dtype = "int8"
+    input_dtype = "uint8"
     temp_dtype = "int32"
     output_dtype = input_dtype
     input_shape = (1, 1, 1, 1536)
@@ -1454,7 +1457,7 @@ def test_uint8_resizeNear():
     verify_vsi_result(inputs, out, [], input_shape, output_shape, input_dtype)
 
 def test_uint8_mean():
-    input_dtype = "int8"
+    input_dtype = "uint8"
     temp_dtype = "int32"
     output_dtype = input_dtype
     input_shape = (1, 7, 7, 20)
@@ -1630,7 +1633,7 @@ if __name__ == "__main__":
     #test_uint8_softmax()
     #test_uint8_reshape()
     #test_uint8_concatenation()
-    #test_uint8_max_pool()
+    test_uint8_max_pool()
     #test_float_mean()
     #test_uint8_resizeBilinear()
     #test_uint8_argmax()
@@ -1639,7 +1642,7 @@ if __name__ == "__main__":
     #test_float_batch_norm()
     #test_uint8_fullconnected()
     #test_uint8_argmin()
-    #test_uint8_squeeze()
+    test_uint8_squeeze()
     #test_uint8_depthtospace()
     #test_qnn_sub()
     #test_qnn_multiply()
@@ -1651,6 +1654,5 @@ if __name__ == "__main__":
     #test_qnn_pad()
     #test_uint8_mean()
     #test_requantize()
-    #test_transpose_conv2d_pattern()
-    test_uint8_transpose_conv2d_pattern()
+    #test_uint8_transpose_conv2d_pattern()
     #test_uint8_tanh()

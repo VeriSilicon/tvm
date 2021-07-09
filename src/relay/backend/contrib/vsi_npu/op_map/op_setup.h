@@ -485,20 +485,6 @@ public:
                       std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) override;
 };
 
-
-class DeConv : public OpSetup {
- public:
-  
-  using OpSetup::OpSetup;
-
-  Expr weight_key_;
-  void SetupOperand(const CallNode* cn, tim::vx::Quantization& quant_info,
-                    std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) override;
-
-  void SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx::Graph> graph,
-                      std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) override;
-};
-
 }  // namespace op_map
 using VxOpTable = std::map<Expr, std::shared_ptr<op_map::OpSetup>>;
 }  // namespace vsi_npu

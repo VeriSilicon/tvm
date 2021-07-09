@@ -25,7 +25,6 @@ struct Field_Quant_Operand {
 
     Expr expr = c->args[Idx];
     auto dtype = expr->checked_type().as<TensorTypeNode>()->dtype;
-
     role = expr->IsInstance<ConstantNode>() ? tim::vx::TensorAttribute::CONSTANT
                                             : tim::vx::TensorAttribute::TRANSIENT;
     if (dtype.is_uint()) {
@@ -35,129 +34,45 @@ struct Field_Quant_Operand {
     } else if (dtype.is_int() && dtype.bits() == 32) {
       dataType = tim::vx::DataType::INT32;
     }
-    
-    // else if (dtype.is_float()) {
-    //   dataType = tim::vx::DataType::FLOAT32;
-    // } else if (dtype.is_bool() && dtype.bits() == 1) {
-    //   dataType = tim::vx::DataType::BOOL8;
-    // }
 
     shape_setup(c, Idx, shape);
     AsConstant(c1->args[Scale_Idx], &scale);
     AsConstant(c1->args[Zp_Idx], &zp);
-
     auto quant_spec = tim::vx::Quantization(QType, scale, zp);
-
     tim::vx::TensorSpec spec(dataType, shape, role, quant_spec);
     return spec;
   }
 };
 
-template <uint32_t Idx, uint32_t Scale_Idx, uint32_t Zp_Idx, tim::vx::TensorAttribute Role,
-          tim::vx::DataType DType, tim::vx::QuantType QType>
-struct Field_ASYMM_U8 {
-  static const uint32_t arg_pos = Idx;
-
-  static tim::vx::TensorSpec AsTimVxTensorSpec(const Call& c, const Call& c1) {
-    tim::vx::ShapeType shape;
-    shape_setup(c, Idx, shape);
-
-    float scale = 0;
-    int32_t zp = 0;
-
-    AsConstant(c1->args[Scale_Idx], &scale);
-    AsConstant(c1->args[Zp_Idx], &zp);
-
-    auto quant_spec = tim::vx::Quantization(QType, scale, zp);
-
-    tim::vx::TensorSpec spec(DType, shape, Role, quant_spec);
-
-    return spec;
-  }
-};
-
-template <uint32_t Idx, tim::vx::TensorAttribute Role,
-          tim::vx::DataType DType = tim::vx::DataType::FLOAT32,
-          tim::vx::QuantType QType = tim::vx::QuantType::NONE>
-struct Field_Float32 {
+template <uint32_t Idx>
+struct Field_NoQuant_Operand {
   static const uint32_t arg_pos = Idx;
 
   static tim::vx::TensorSpec AsTimVxTensorSpec(const Call& c) {
     tim::vx::ShapeType shape;
+    tim::vx::DataType dataType;
+    tim::vx::TensorAttribute role;
+
+    Expr expr = c->args[Idx];
+
+    auto dtype = expr->checked_type().as<TensorTypeNode>()->dtype;
+    role = expr->IsInstance<ConstantNode>() ? tim::vx::TensorAttribute::CONSTANT
+                                            : tim::vx::TensorAttribute::TRANSIENT;
+
+    if (dtype.is_bool() && dtype.bits() == 1) {
+      dataType = tim::vx::DataType::BOOL8;
+    } else if (dtype.is_uint()) {
+      dataType = tim::vx::DataType::UINT8;
+    } else if (dtype.is_int() && dtype.bits() == 8) {
+      dataType = tim::vx::DataType::INT8;
+    } else if (dtype.is_int() && dtype.bits() == 32) {
+      dataType = tim::vx::DataType::INT32;
+    } else if (dtype.is_float()) {
+      dataType = tim::vx::DataType::FLOAT32;
+    }
+
     shape_setup(c, Idx, shape);
-
-    tim::vx::TensorSpec spec(DType, shape, Role);
-
-    return spec;
-  }
-};
-
-template <uint32_t Idx, tim::vx::TensorAttribute Role,
-          tim::vx::DataType DType = tim::vx::DataType::BOOL8,
-          tim::vx::QuantType QType = tim::vx::QuantType::NONE>
-struct Field_Bool {
-  static const uint32_t arg_pos = Idx;
-
-  static tim::vx::TensorSpec AsTimVxTensorSpec(const Call& c) {
-    tim::vx::ShapeType shape;
-    shape_setup(c, Idx, shape);
-
-    tim::vx::TensorSpec spec(DType, shape, Role);
-
-    return spec;
-  }
-};
-
-template <uint32_t Idx, tim::vx::DataType DType = tim::vx::DataType::FLOAT32,
-          tim::vx::QuantType QType = tim::vx::QuantType::NONE>
-struct Field_NoAttribute_Float32 {
-  static const uint32_t arg_pos = Idx;
-
-  static tim::vx::TensorSpec AsTimVxTensorSpec(const Call& c, tim::vx::TensorAttribute Role) {
-    tim::vx::ShapeType shape;
-    shape_setup(c, Idx, shape);
-
-    tim::vx::TensorSpec spec(DType, shape, Role);
-
-    return spec;
-  }
-};
-
-template <uint32_t Idx, uint32_t Scale_Idx, uint32_t Zp_Idx, tim::vx::DataType DType,
-          tim::vx::QuantType QType>
-struct Field_NoAttribute_U8 {
-  static const uint32_t arg_pos = Idx;
-
-  static tim::vx::TensorSpec AsTimVxTensorSpec(const Call& c, tim::vx::TensorAttribute Role) {
-    tim::vx::ShapeType shape;
-    shape_setup(c, Idx, shape);
-
-    float scale = 0;
-    int32_t zp = 0;
-
-    AsConstant(c->args[Scale_Idx], &scale);
-    AsConstant(c->args[Zp_Idx], &zp);
-
-    auto quant_spec = tim::vx::Quantization(QType, scale, zp);
-
-    tim::vx::TensorSpec spec(DType, shape, Role, quant_spec);
-
-    return spec;
-  }
-};
-
-template <uint32_t Idx, tim::vx::TensorAttribute Role>
-struct Field_NoDType {
-  static const uint32_t arg_pos = Idx;
-
-  static tim::vx::TensorSpec AsTimVxTensorSpec(const Call& c) {
-    tim::vx::ShapeType shape;
-    shape_setup(c, Idx, shape);
-
-    tim::vx::TensorSpec spec;
-    spec.SetAttribute(Role);
-    spec.SetShape(shape);
-
+    tim::vx::TensorSpec spec(dataType, shape, role);
     return spec;
   }
 };
