@@ -38,14 +38,15 @@ namespace contrib {
 namespace vsi_npu {
 namespace op_map {
 
-void shape_setup(const Call &c, uint32_t arg_idx,
-                 tim::vx::ShapeType &result_shape) {
+void shape_setup(const Call& c, uint32_t arg_idx, tim::vx::ShapeType& result_shape) {
+  auto shape = c->args[arg_idx]->checked_type().as<TensorTypeNode>()->shape;
+  if (shape.size() == 0) {
+    result_shape.push_back(1);
+  }
+
   std::transform(
-      c->args[arg_idx]->checked_type().as<TensorTypeNode>()->shape.rbegin(),
-      c->args[arg_idx]->checked_type().as<TensorTypeNode>()->shape.rend(),
-      std::back_inserter(result_shape), [](const PrimExpr &dim) {
-        return static_cast<uint32_t>(dim.as<IntImmNode>()->value);
-      });
+      shape.rbegin(), shape.rend(), std::back_inserter(result_shape),
+      [](const PrimExpr& dim) { return static_cast<uint32_t>(dim.as<IntImmNode>()->value); });
 }
 
 void UpdateInputTableInfo(std::map<Expr, std::shared_ptr<OpSetup>>& VxOp_tb, Expr expr,
