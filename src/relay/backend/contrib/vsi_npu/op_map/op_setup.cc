@@ -78,6 +78,21 @@ void UpdateOutputQuantInfo(const Call& c, uint32_t scale_idx, uint32_t zp_idx,
       .SetZeroPoints({zp});
 }
 
+tim::vx::DataType GetTvxType(DataType dtype) {
+    if (dtype.is_bool() && dtype.bits() == 1) {
+      return tim::vx::DataType::BOOL8;
+    } else if (dtype.is_uint()) {
+      return tim::vx::DataType::UINT8;
+    } else if (dtype.is_int() && dtype.bits() == 8) {
+      return tim::vx::DataType::INT8;
+    } else if (dtype.is_int() && dtype.bits() == 32) {
+      return tim::vx::DataType::INT32;
+    } else if (dtype.is_float()) {
+      return tim::vx::DataType::FLOAT32;
+    }
+    return tvx::DataType::UNKNOWN;
+};
+
 void OpSetup::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx::Graph> graph,
                              std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
   UpdateOutputTableInfo(vxOpmap_tbl, expr_key_, graph.get());
@@ -449,17 +464,6 @@ void ElementWiseNotypeOp::SetupOperand(const CallNode* cn, tim::vx::Quantization
 
   vxOpmap_tbl[input_key_] = std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_),input_callback);
   vxOpmap_tbl[input2_key_] = std::make_shared<OpSetup>(Input_1::AsTimVxTensorSpec(call_),input2_callback);
-
-  // if (dtype.is_float()) {
-  //   vxOpmap_tbl[input_key_]->specs_[0].SetDataType(tim::vx::DataType::FLOAT32);
-  //   vxOpmap_tbl[input2_key_]->specs_[0].SetDataType(tim::vx::DataType::FLOAT32);
-  // } else if (dtype.is_uint()) {
-  //   vxOpmap_tbl[input_key_]->specs_[0].SetDataType(tim::vx::DataType::UINT8);
-  //   vxOpmap_tbl[input2_key_]->specs_[0].SetDataType(tim::vx::DataType::UINT8);
-  // } else if (dtype.is_int()) {
-  //   vxOpmap_tbl[input_key_]->specs_[0].SetDataType(tim::vx::DataType::INT32);
-  //   vxOpmap_tbl[input2_key_]->specs_[0].SetDataType(tim::vx::DataType::INT32);
-  // }
 
   (void)quant_info;
 }

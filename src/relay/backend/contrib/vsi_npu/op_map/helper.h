@@ -27,6 +27,7 @@ bool AsConstant(const Expr& expr, T* out) {
 void UpdateOutputQuantInfo(const Call& c, uint32_t scale_idx, uint32_t zp_idx,
                            tim::vx::Quantization& quant_info);
 
+tim::vx::DataType GetTvxType(DataType dtype);
 
 }  // namespace op_map
 }  // namespace vsi_npu

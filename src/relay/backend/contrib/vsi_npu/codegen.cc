@@ -123,18 +123,7 @@ TensorMakerImpl::Create(const Expr &expr) {
 
   for (size_t i = 0; i < output_size; i++) {
     auto dtype = tensor_node[i].dtype;
-    tvx::DataType tvx_type = tvx::DataType::FLOAT32;
-    if (dtype.is_float()) {
-      tvx_type = tvx::DataType::FLOAT32;
-    } else if (dtype.is_bool()) {
-      tvx_type = tvx::DataType::BOOL8;
-    } else if (dtype.is_uint()) {
-      tvx_type = tvx::DataType::UINT8;
-    } else if (dtype.is_int() && dtype.bits() == 8) {
-      tvx_type = tvx::DataType::INT8;
-    } else if (dtype.is_int()) {
-      tvx_type = tvx::DataType::INT32;
-    }
+    auto tvx_type = GetTvxType(dtype);
     auto output_Opsetup = std::make_shared<OpSetup>(
         tvx::TensorSpec(tvx_type, o_shape, tvx::TensorAttribute::OUTPUT),
         std::make_shared<CallbackExpr>(expr));
@@ -267,7 +256,6 @@ RawGraphDef GraphMakerImpl::Create(const Function &func) {
   vx_graph_ = vx_global_ctx_->CreateGraph();
   vxOpmap_tbl_ = MakeTensor(this->module_, this->var_, func->body);
   std::vector<tvx::TensorSpec> input_spec, output_spec;
-
   for (const auto &param : func->params) {
     quant_info_infer(vxOpmap_tbl_,param,true);
     for (auto &tensor_info : vxOpmap_tbl_[param]->specs_) {

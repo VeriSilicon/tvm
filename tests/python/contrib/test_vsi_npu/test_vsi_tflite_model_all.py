@@ -166,6 +166,14 @@ model_list = [
      'shape': (1, 513, 513, 3),
      'input_tensor_name': 'MobilenetV2/MobilenetV2/input',
      'dtype': "uint8"},
+    {'name': 'unet.M865SW-632.tflite',
+     'shape': (1, 120, 160, 1),
+     'input_tensor_name': 'input_1',
+     'dtype': "float32"},
+    {'name': 'deeplab_v3_plus_quant.tflite',
+     'shape': (1, 513, 513, 3),
+     'input_tensor_name': 'input',
+     'dtype': "uint8"},
     {'name': 'yolov3-tiny_uint8_acuity.tflite',
      'shape': (1, 416, 416, 3),
      'input_tensor_name': 'input_0:out0',
@@ -190,6 +198,8 @@ n1 = np.array(img)
 #n1 = np.broadcast_to(n1, (4, 224, 224, 3)) # batch the image
 n1 = n1.reshape(shape)
 input_data = n1.astype(np.uint8)
+
+# input_data = np.ones(shape, DTYPE)
 
 vsi_input_data = {
     input_tensor_name: tvm.nd.array(input_data),
