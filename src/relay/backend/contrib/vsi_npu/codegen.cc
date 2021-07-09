@@ -160,7 +160,7 @@ static std::map<std::string, setup_operand_fun_ptr> call_node_table = {
   DEFINE_NODE_ITEM("squeeze", Squeeze),
   DEFINE_NODE_ITEM("argmax", ArgMax),
   DEFINE_NODE_ITEM("argmin", ArgMin),
-  DEFINE_NODE_ITEM("image.resize", Resize),
+  DEFINE_NODE_ITEM("image.resize2d", Resize),
   DEFINE_NODE_ITEM("nn.max_pool2d", MaxPool2d),
   DEFINE_NODE_ITEM("qnn.concatenate", VsiNpuConcat),
   DEFINE_NODE_ITEM("add", Add),
