@@ -31,7 +31,7 @@ namespace vsi_npu {
 
 using TensorInfoTable = std::map<Expr, std::vector<tim::vx::TensorSpec>>;
 
-void quant_info_infer(VxOpTable& op_tb, Expr now_expr,bool is_input) {
+void quant_info_infer(VxOpTable& op_tb, Expr now_expr, bool is_input) {
   auto now_opsetup = op_tb[now_expr];
   Expr pre_expr;
   if ((now_opsetup->pCallbackexpr_ == nullptr ||
@@ -104,25 +104,49 @@ std::shared_ptr<tvx::Tensor> createVxOPerand(TensorInfoTable tensor_info,
                          : graph->CreateTensor(tensor_spec, data);
 };
 
+static std::vector<tim::vx::TensorSpec>
+GetTimVxTensorSpec(const TupleTypeNode *tuple) {
+  auto input_node_tensors = tuple->fields;
+
+  std::vector<tim::vx::TensorSpec> specs;
+  uint32_t input_node_num = input_node_tensors.size();
+  for (uint32_t i = 0; i < input_node_num; i++) {
+    tim::vx::ShapeType shape;
+    std::transform(input_node_tensors[i].as<TensorTypeNode>()->shape.rbegin(),
+                   input_node_tensors[i].as<TensorTypeNode>()->shape.rend(),
+                   std::back_inserter(shape), [](const PrimExpr &dim) {
+                     return static_cast<int>(dim.as<IntImmNode>()->value);
+                   });
+
+    // auto quant_spec = tim::vx::Quantization(QType, scale, zp);
+    auto dtype = input_node_tensors[i].as<TensorTypeNode>()->dtype;
+    auto dataType = GetTvxType(dtype);
+
+    tim::vx::TensorSpec spec(dataType, shape,
+                             tim::vx::TensorAttribute::TRANSIENT);
+    specs.push_back(spec);
+  }
+  return specs;
+}
+
 using namespace backend;
 
 std::map<Expr, std::shared_ptr<OpSetup>>
 TensorMakerImpl::Create(const Expr &expr) {
   this->vxOpmap_tbl_.clear();
   CHECK(expr->checked_type().defined());
-  size_t output_size = 1;
   if (auto tuple = expr->checked_type().as<TupleTypeNode>()) {
-    output_size = tuple->fields.size();
+    vxOpmap_tbl_[expr] = std::make_shared<OpSetup>(GetTimVxTensorSpec(tuple));
   }
-  auto tensor_node = expr->checked_type().as<TensorTypeNode>();
-  tim::vx::ShapeType o_shape;
-  std::transform(tensor_node->shape.rbegin(), tensor_node->shape.rend(),
-                 std::back_inserter(o_shape), [](const PrimExpr &dim) {
-                   return static_cast<int>(dim.as<IntImmNode>()->value);
-                 });
+  else {
+    auto tensor_node = expr->checked_type().as<TensorTypeNode>();
+    tim::vx::ShapeType o_shape;
+    std::transform(tensor_node->shape.rbegin(), tensor_node->shape.rend(),
+                   std::back_inserter(o_shape), [](const PrimExpr &dim) {
+                     return static_cast<int>(dim.as<IntImmNode>()->value);
+                   });
 
-  for (size_t i = 0; i < output_size; i++) {
-    auto dtype = tensor_node[i].dtype;
+    auto dtype = tensor_node[0].dtype;
     auto tvx_type = GetTvxType(dtype);
     auto output_Opsetup = std::make_shared<OpSetup>(
         tvx::TensorSpec(tvx_type, o_shape, tvx::TensorAttribute::OUTPUT),
@@ -188,7 +212,7 @@ static std::map<std::string, setup_operand_fun_ptr> func_node_table = {
   DEFINE_NODE_ITEM("vsi_npu.qnn_tanh", VsiNpuQnnTanh),
 };
 
-void TensorMakerImpl::InferCall(const CallNode* cn) {
+void TensorMakerImpl::InferCall(const CallNode *cn) {
   Call call_obj = GetRef<Call>(cn);
   Expr expr = GetRef<Expr>(cn);
   std::string name;
@@ -197,17 +221,17 @@ void TensorMakerImpl::InferCall(const CallNode* cn) {
     auto comp = fn->GetAttr<String>(attr::kComposite);
     CHECK(comp.defined());
     name = comp.value();
-    std::cout<<"########################"<<name<<std::endl;
+    std::cout << "TensorMakerImpl::InferCall: " << name << std::endl;
     if (func_node_table.find(name) != func_node_table.end()) {
       func_node_table[name](vxOpmap_tbl_, expr);
-      vxOpmap_tbl_[expr]->SetupOperand(cn,out_quant,vxOpmap_tbl_);
+      vxOpmap_tbl_[expr]->SetupOperand(cn, out_quant, vxOpmap_tbl_);
     }
   } else if (const auto *fn = cn->op.as<OpNode>()) {
     name = fn->name;
-    std::cout<<"########################"<<name<<std::endl;
+    std::cout << "TensorMakerImpl::InferCall: " << name << std::endl;
     if (call_node_table.find(name) != call_node_table.end()) {
       call_node_table[name](vxOpmap_tbl_, expr);
-      vxOpmap_tbl_[expr]->SetupOperand(cn,out_quant,vxOpmap_tbl_);
+      vxOpmap_tbl_[expr]->SetupOperand(cn, out_quant, vxOpmap_tbl_);
     }
   } else {
     std::cout << __FUNCTION__ << "not support operator." << std::endl;
@@ -218,7 +242,7 @@ void TensorMakerImpl::InferCall(const CallNode* cn) {
   if (out_quant.ZeroPoints().size() != 0) {
     spec_info.SetQuantization(out_quant);
   }
-  quant_info_infer(vxOpmap_tbl_,expr,false);
+  quant_info_infer(vxOpmap_tbl_, expr, false);
 }
 
 void TensorMakerImpl::VisitInferred(const Expr &expr) {
@@ -257,7 +281,7 @@ RawGraphDef GraphMakerImpl::Create(const Function &func) {
   vxOpmap_tbl_ = MakeTensor(this->module_, this->var_, func->body);
   std::vector<tvx::TensorSpec> input_spec, output_spec;
   for (const auto &param : func->params) {
-    quant_info_infer(vxOpmap_tbl_,param,true);
+    quant_info_infer(vxOpmap_tbl_, param, true);
     for (auto &tensor_info : vxOpmap_tbl_[param]->specs_) {
       tensor_info.SetAttribute(tvx::TensorAttribute::INPUT);
       input_spec.push_back(tensor_info);

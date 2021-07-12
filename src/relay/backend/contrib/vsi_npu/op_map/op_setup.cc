@@ -317,7 +317,7 @@ void VsiNpuConcat::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx::G
 
   for (int32_t i = 0; i < input_size; i++) {
     auto input = graph->CreateTensor(vxOpmap_tbl[input_key_]->specs_[i]);
-    vxOpmap_tbl[input_key_]->ptensors_.push_back(input);
+    vxOpmap_tbl[input_key_]->SetTensor(input);
     (*op).BindInputs({input});
   }
 
@@ -660,7 +660,6 @@ void VsiNpuQnnDense::SetupOperand(const CallNode* cn, tim::vx::Quantization& qua
 
   using Input_Field = Field_Quant_Operand<0, 4, 2>;
   using Weight_Field = Field_Quant_Operand<1, 5, 3>;
-
   using Bias_Field = Field_Quant_Operand<1, 1, 2>;
 
   input_key_ = call_->args[Input_Field::arg_pos];
