@@ -1582,6 +1582,65 @@ def test_uint8_transpose_conv2d_pattern():
     print("Testing {0: <50}".format("QNN pattern"), end="")
     verify_vsi_result(inputs, out, params, data_shape, out_shape, output_dtype)
 
+def test_uint8_transpose_conv2d_pattern2():
+    data_shape = (1, 24, 24, 128)
+    #weight_shape = (2, 2, 256,128)
+    weight_shape = (128, 64, 3,3)
+    out_shape = (1, 48, 48, 64)
+
+    input_dtype = "uint8"
+    temp_dtype = "int32"
+    output_dtype= input_dtype
+    kernel_size=(3, 3)
+    strides=(2, 2)
+    padding=(0, 0, 1, 1)
+    data_layout="NHWC"
+
+    data = relay.var("data", shape=data_shape, dtype=input_dtype)
+    weight = relay.var("weight",shape=weight_shape,dtype=input_dtype)
+
+
+    conv_params = {
+            "kernel_size": kernel_size,
+            "padding": padding,
+            "data_layout": data_layout,
+            "channels":weight_shape[1],
+            "out_dtype":temp_dtype,
+            "strides":strides
+        }
+    qnn_conv2d_params = dict(conv_params)
+    qnn_conv2d_params["input_zero_point"] = relay.const(0, "int32")
+    qnn_conv2d_params["kernel_zero_point"] = relay.const(129, "int32")
+    qnn_conv2d_params["out_dtype"] = "int32"
+    qnn_conv2d_params["input_scale"] = relay.const(0.0109899, "float32")
+    qnn_conv2d_params["kernel_scale"] = relay.const(0.00171253, "float32")
+    conv_op = relay.qnn.op.conv2d_transpose(
+            data,
+            weight,
+            **qnn_conv2d_params
+        )
+
+    requantize_params = {
+            "input_scale": relay.const(0.0109899*0.00171253, "float32"),
+            "input_zero_point": relay.const(0, "int32"),
+            "output_scale": relay.const(0.00000125877, "float32"),
+            "output_zero_point": relay.const(124, "int32"),
+            "axis": 3,
+            "out_dtype":output_dtype,
+        }
+    out = relay.qnn.op.requantize(conv_op,**requantize_params)
+
+
+    inputs = {
+        "data": tvm.nd.array(np.random.randint(1, high=20, size=data_shape, dtype=input_dtype)),
+
+    }
+    params = {
+        "weight": tvm.nd.array(np.random.randint(1, high=20, size=weight_shape, dtype=input_dtype)),
+    }
+    print("Testing {0: <50}".format("QNN pattern"), end="")
+    verify_vsi_result(inputs, out, params, data_shape, out_shape, output_dtype)
+
 def test_uint8_tanh():
     input_dtype = "uint8"
     output_dtype = input_dtype
@@ -1633,7 +1692,7 @@ if __name__ == "__main__":
     #test_uint8_softmax()
     #test_uint8_reshape()
     #test_uint8_concatenation()
-    test_uint8_max_pool()
+    #test_uint8_max_pool()
     #test_float_mean()
     #test_uint8_resizeBilinear()
     #test_uint8_argmax()
@@ -1642,7 +1701,7 @@ if __name__ == "__main__":
     #test_float_batch_norm()
     #test_uint8_fullconnected()
     #test_uint8_argmin()
-    test_uint8_squeeze()
+    #test_uint8_squeeze()
     #test_uint8_depthtospace()
     #test_qnn_sub()
     #test_qnn_multiply()
@@ -1655,4 +1714,5 @@ if __name__ == "__main__":
     #test_uint8_mean()
     #test_requantize()
     #test_uint8_transpose_conv2d_pattern()
+    test_uint8_transpose_conv2d_pattern2()
     #test_uint8_tanh()

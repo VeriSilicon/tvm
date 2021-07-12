@@ -89,11 +89,15 @@ struct TvxDeConv2dAttrs {
   std::vector<uint32_t> strides;
   int channels;
   tim::vx::PadType pad_type;
+  std::vector<uint32_t> padding;
+  int groups;
   TvxDeConv2dAttrs(const Call call) {
     auto tvm_attr_struct = call->attrs.as<Conv2DTransposeAttrs>();
     attrs_vector_transform(tvm_attr_struct->kernel_size, kernel_size);
     attrs_vector_transform(tvm_attr_struct->strides, strides);
+    attrs_vector_transform(tvm_attr_struct->padding, padding);
     attrs_padtype_transform(tvm_attr_struct->padding,pad_type);
+    attrs_int_transform(tvm_attr_struct->groups,groups);
     channels = static_cast<int>(tvm_attr_struct->channels.as<IntImmNode>()->value);
   }
 };

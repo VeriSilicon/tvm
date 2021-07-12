@@ -364,10 +364,13 @@ void VsiNpuQnnDeconv::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx
   TvxDeConv2dAttrs tvx_attrs(conv_);
 
   auto op = graph->CreateOperation<tim::vx::ops::DeConv2d>(
-      tvx_attrs.channels, tvx_attrs.pad_type, std::array<uint32_t, 2>{tvx_attrs.kernel_size[0], tvx_attrs.kernel_size[1]},
-      std::array<uint32_t, 2>{tvx_attrs.strides[0],tvx_attrs.strides[1]},
+      tvx_attrs.channels, tvx_attrs.pad_type,
+      std::array<uint32_t, 2>{tvx_attrs.kernel_size[0], tvx_attrs.kernel_size[1]},
+      std::array<uint32_t, 2>{tvx_attrs.strides[0], tvx_attrs.strides[1]},
       std::array<uint32_t, 2>{0, 0},
-      tim::vx::DataLayout::CWHN, tim::vx::DataLayout::WHIcOc);
+      std::array<uint32_t, 4>{tvx_attrs.padding[0], tvx_attrs.padding[2], tvx_attrs.padding[1],
+                              tvx_attrs.padding[3]},
+      1, tim::vx::DataLayout::CWHN, tim::vx::DataLayout::WHIcOc);
 
   (*op).BindInputs({vxOpmap_tbl[input_key_]->ptensors_[0], vxOpmap_tbl[weight_key_]->ptensors_[0]});
   (*op).BindOutput(vxOpmap_tbl[expr_key_]->ptensors_[0]);

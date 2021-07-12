@@ -186,6 +186,10 @@ model_list = [
      'shape': (1, 128, 128, 3),
      'input_tensor_name': 'input',
      'dtype': "uint8"},
+    {'name': 'pynet_quant.tflite',
+     'shape': (1, 96, 96, 3),
+     'input_tensor_name': 'input',
+     'dtype': "uint8"},
 ]
 
 model_full_name = os.environ["TFLITE_MODEL"]
