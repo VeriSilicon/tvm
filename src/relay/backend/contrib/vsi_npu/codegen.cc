@@ -72,7 +72,8 @@ void quant_info_infer(VxOpTable& op_tb, Expr now_expr, bool is_input) {
   while (ptr_callback &&
          op_tb[ptr_callback->expr_]->specs_[0].quantization_.ZeroPoints().size() == 0) {
     Expr expr = ptr_callback->expr_;
-    if (!expr->checked_type().as<TensorTypeNode>()->dtype.is_int()) {
+    auto datatype = GetTvxType(expr->checked_type().as<TensorTypeNode>()->dtype);
+    if (datatype != tim::vx::DataType::INT32) {
       op_tb[expr]
           ->specs_[0]
           .quantization_.SetType(tvx::QuantType::ASYMMETRIC)
