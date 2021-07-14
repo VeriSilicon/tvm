@@ -20,8 +20,8 @@ struct Field_Quant_Operand {
     tim::vx::ShapeType shape;
     tim::vx::DataType dataType;
     tim::vx::TensorAttribute role;
-    float scale = 0;
-    int32_t zp = 0;
+    std::vector<float> scales;
+    std::vector<int32_t> zps;
 
     Expr expr = c->args[Idx];
     auto dtype = expr->checked_type().as<TensorTypeNode>()->dtype;
@@ -31,9 +31,18 @@ struct Field_Quant_Operand {
     dataType = GetTvxType(dtype);
 
     shape_setup(c, Idx, shape);
-    AsConstant(c1->args[Scale_Idx], &scale);
-    AsConstant(c1->args[Zp_Idx], &zp);
-    auto quant_spec = tim::vx::Quantization(QType, scale, zp);
+    AsConstant(c1->args[Scale_Idx], scales);
+    AsConstant(c1->args[Zp_Idx], zps);
+    tim::vx::Quantization quant_spec;
+    if(scales.size() == 1){
+      quant_spec = tim::vx::Quantization(QType, scales[0], zps[0]);
+    } else{
+      for(uint32_t i=1;i<scales.size();i++){
+        zps.push_back(0);
+      }
+      quant_spec = tim::vx::Quantization(tim::vx::QuantType::SYMMETRIC_PER_CHANNEL, 0 , scales, zps);
+    }
+
     tim::vx::TensorSpec spec(dataType, shape, role, quant_spec);
     return spec;
   }
@@ -77,21 +86,21 @@ struct Field_TUPLE_QUANT_OPERAND {
     for (uint32_t i = 0; i < input_node_num; i++) {
       tim::vx::ShapeType shape;
       tim::vx::DataType dataType;
-      float scale = 0;
-      int32_t zp = 0;
+      std::vector<float> scales;
+      std::vector<int32_t> zps;
 
       std::transform(
           input_node_tensors_type[i].as<TensorTypeNode>()->shape.rbegin(),
           input_node_tensors_type[i].as<TensorTypeNode>()->shape.rend(), std::back_inserter(shape),
           [](const PrimExpr& dim) { return static_cast<int>(dim.as<IntImmNode>()->value); });
 
-      AsConstant<float>(input_node_scales[i], &scale);
-      AsConstant<int>(input_node_zps[i], &zp);
+      AsConstant<float>(input_node_scales[i], scales);
+      AsConstant<int>(input_node_zps[i], zps);
 
       auto dtype = input_node_tensors_type[i].as<TensorTypeNode>()->dtype;
       dataType = GetTvxType(dtype);
 
-      auto quant_spec = tim::vx::Quantization(QType, scale, zp);
+      auto quant_spec = tim::vx::Quantization(QType, scales[0], zps[0]);
       tim::vx::TensorSpec spec(dataType, shape, tim::vx::TensorAttribute::TRANSIENT, quant_spec);
       specs.push_back(spec);
     }

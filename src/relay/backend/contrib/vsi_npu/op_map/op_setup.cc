@@ -68,15 +68,15 @@ void UpdateOutputTableInfo(std::map<Expr, std::shared_ptr<OpSetup>>& VxOp_tb, Ex
 
 void UpdateOutputQuantInfo(const Call& c, uint32_t scale_idx, uint32_t zp_idx,
                            tim::vx::Quantization& quant_info) {
-  float scale;
-  int32_t zp;
+  std::vector<float> scales;
+  std::vector<int32_t> zps;
 
-  AsConstant(c->args[scale_idx], &scale);
-  AsConstant(c->args[zp_idx], &zp);
+  AsConstant(c->args[scale_idx], scales);
+  AsConstant(c->args[zp_idx], zps);
 
   quant_info.SetType(tim::vx::QuantType::ASYMMETRIC)
-      .SetScales({scale})
-      .SetZeroPoints({zp});
+      .SetScales(scales)
+      .SetZeroPoints(zps);
 }
 
 tim::vx::DataType GetTvxType(DataType dtype) {
@@ -136,11 +136,9 @@ void VsiNpuQnnConv2d::SetupOperand(const CallNode* cn, tim::vx::Quantization& qu
   tim::vx::TensorSpec bias_spec = Bias_Field::AsTimVxTensorSpec(add, requantize);
 
   vxOpmap_tbl[weight_key_] =
-      std::make_shared<OpSetup>(Weight_Field::AsTimVxTensorSpec(conv_, conv_));
+      std::make_shared<OpSetup>(weight_spec);
   bias_spec.shape_.resize(1);
-  bias_spec.quantization_.Scales()[0] =
-      weight_spec.quantization_.Scales()[0] *
-      vxOpmap_tbl[input_key_]->specs_[0].quantization_.Scales()[0];
+
   vxOpmap_tbl[bias_key_] = std::make_shared<OpSetup>(bias_spec);
   
   UpdateOutputQuantInfo(requantize, kRequant_output_scale_idx, kRequant_output_zp_idx, quant_info);
@@ -155,7 +153,8 @@ void VsiNpuQnnConv2d::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx
   UpdateOutputTableInfo(vxOpmap_tbl, expr_key_, graph.get());
 
   bool is_depthwise_conv =
-      (static_cast<uint32_t>(tvx_attrs.groups) == vxOpmap_tbl[input_key_]->specs_[0].shape_[0]);
+      (static_cast<uint32_t>(tvx_attrs.groups) == vxOpmap_tbl[input_key_]->specs_[0].shape_[0])
+      && (static_cast<uint32_t>(tvx_attrs.groups) != 1);
 
   auto weight_spec = vxOpmap_tbl[weight_key_]->specs_[0];
   uint32_t kernel_ic = weight_spec.shape_[1];
@@ -165,6 +164,11 @@ void VsiNpuQnnConv2d::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx
     vxOpmap_tbl[weight_key_]->specs_[0].shape_[0]= 1;
     vxOpmap_tbl[weight_key_]->specs_[0].shape_[1]= kernel_ic*kernel_oc;
   }
+
+  if(vxOpmap_tbl[weight_key_]->specs_[0].quantization_.Scales().size() != 1 && is_depthwise_conv){
+    vxOpmap_tbl[weight_key_]->specs_[0].quantization_.SetChannelDim(1);
+  }
+
   UpdateInputTableInfo(vxOpmap_tbl, weight_key_, graph.get());
 
   auto op = graph->CreateOperation<tim::vx::ops::Conv2d>(
@@ -351,6 +355,10 @@ void VsiNpuQnnDeconv::SetupOperand(const CallNode* cn, tim::vx::Quantization& qu
 
   vxOpmap_tbl[weight_key_] =
       std::make_shared<OpSetup>(Weight_Field::AsTimVxTensorSpec(conv_, conv_));
+
+  if(vxOpmap_tbl[weight_key_]->specs_[0].quantization_.Scales().size() != 1){
+    vxOpmap_tbl[weight_key_]->specs_[0].quantization_.SetChannelDim(3);
+  }
 
   UpdateOutputQuantInfo(requantize, kRequant_output_scale_idx, kRequant_output_zp_idx, quant_info);
 };

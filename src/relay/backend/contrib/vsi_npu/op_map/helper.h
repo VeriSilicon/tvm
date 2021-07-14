@@ -13,14 +13,22 @@ namespace contrib {
 namespace vsi_npu {
 namespace op_map {
 
-// Get a T from a constant represented by a NDArray.
 template <typename T>
-bool AsConstant(const Expr& expr, T* out) {
+bool AsConstant(const Expr& expr, std::vector<T>& out) {
   if (!expr->IsInstance<ConstantNode>()) {
     return false;
   }
   runtime::NDArray data = Downcast<Constant>(expr)->data;
-  *out = *static_cast<T*>(data->data);
+
+  if (data->ndim == 0) {
+    runtime::NDArray data = Downcast<Constant>(expr)->data;
+    out.push_back(*static_cast<T*>(data->data));
+  } else {
+    int64_t size = data->shape[0];
+    for (uint32_t i = 0; i < size; i++) {
+      out.push_back(static_cast<T*>(data->data)[i]);
+    }
+  }
   return true;
 }
 
