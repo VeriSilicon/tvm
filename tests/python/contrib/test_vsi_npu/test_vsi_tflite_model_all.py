@@ -156,8 +156,7 @@ model_list = [
     {'name': 'efficientnet-edgetpu-S_quant.tflite',
      'shape': (1, 224, 224, 3),
      'input_tensor_name': 'images',
-     'dtype': "uint8"
-     },
+     'dtype': "uint8"},
     {'name': 'deeplab_v3_plus_quant.tflite',
      'shape': (1, 513, 513, 3),
      'input_tensor_name': 'input',
@@ -178,6 +177,10 @@ model_list = [
      'shape': (1, 416, 416, 3),
      'input_tensor_name': 'input_0:out0',
      'dtype': "uint8"},
+    {'name': 'yolov3_uint8_acuity.tflite',
+     'shape': (1, 608, 608, 3),
+     'input_tensor_name': 'input_0:out0',
+     'dtype': "uint8"},
     {'name': 'unet_quant.tflite',
      'shape': (1, 384, 384, 3),
      'input_tensor_name': 'input',
@@ -189,6 +192,10 @@ model_list = [
     {'name': 'pynet_quant.tflite',
      'shape': (1, 96, 96, 3),
      'input_tensor_name': 'input',
+     'dtype': "uint8"},
+    {'name': 'ssd_mobilenet_v2_fpnlite_320x320_coco17_quant.M865SW-669.tflite',
+     'shape': (1, 320, 320, 3),
+     'input_tensor_name': 'serving_default_input:0',
      'dtype': "uint8"},
 ]
 

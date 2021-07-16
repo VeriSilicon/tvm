@@ -112,6 +112,7 @@ GetTimVxTensorSpec(const TupleTypeNode *tuple) {
   std::vector<tim::vx::TensorSpec> specs;
   uint32_t input_node_num = input_node_tensors.size();
   for (uint32_t i = 0; i < input_node_num; i++) {
+    std::cout << "GetTimVxTensorSpec: " << input_node_tensors[i].as<TensorTypeNode>() << std::endl;
     tim::vx::ShapeType shape;
     std::transform(input_node_tensors[i].as<TensorTypeNode>()->shape.rbegin(),
                    input_node_tensors[i].as<TensorTypeNode>()->shape.rend(),
@@ -119,12 +120,11 @@ GetTimVxTensorSpec(const TupleTypeNode *tuple) {
                      return static_cast<int>(dim.as<IntImmNode>()->value);
                    });
 
-    // auto quant_spec = tim::vx::Quantization(QType, scale, zp);
     auto dtype = input_node_tensors[i].as<TensorTypeNode>()->dtype;
     auto dataType = GetTvxType(dtype);
 
     tim::vx::TensorSpec spec(dataType, shape,
-                             tim::vx::TensorAttribute::TRANSIENT);
+                             tim::vx::TensorAttribute::OUTPUT);
     specs.push_back(spec);
   }
   return specs;
@@ -137,7 +137,11 @@ TensorMakerImpl::Create(const Expr &expr) {
   this->vxOpmap_tbl_.clear();
   CHECK(expr->checked_type().defined());
   if (auto tuple = expr->checked_type().as<TupleTypeNode>()) {
-    vxOpmap_tbl_[expr] = std::make_shared<OpSetup>(GetTimVxTensorSpec(tuple));
+    auto specs = GetTimVxTensorSpec(tuple);
+    auto tn = expr.as<TupleNode>();
+    for (uint32_t i = 0; i < tuple->fields.size(); i++) {
+      vxOpmap_tbl_[tn->fields[i]] = std::make_shared<OpSetup>(specs[i]);
+    }
   }
   else {
     auto tensor_node = expr->checked_type().as<TensorTypeNode>();
@@ -247,7 +251,7 @@ void TensorMakerImpl::InferCall(const CallNode *cn) {
 }
 
 void TensorMakerImpl::VisitInferred(const Expr &expr) {
-  if (vxOpmap_tbl_.find(expr) != vxOpmap_tbl_.end()) {
+  if (vxOpmap_tbl_.find(expr) != vxOpmap_tbl_.end() || expr->IsInstance<TupleNode>()) {
     VisitExpr(expr); // base class visit API
   }
 }
@@ -263,8 +267,11 @@ void TensorMakerImpl::VisitExpr_(const TupleNode *tn) {
   auto tuple = GetRef<Tuple>(tn);
 
   for (size_t i = 0; i < tn->fields.size(); i++) {
-     //tensor_info_tbl_[tn->fields[i]] = {tensor_info_tbl_[tuple][i]};
-     vxOpmap_tbl_[tn->fields[i]] = std::make_shared<OpSetup>(vxOpmap_tbl_[tuple]->specs_[i]);
+    if (vxOpmap_tbl_.find(tn->fields[i]) == vxOpmap_tbl_.end() &&
+        vxOpmap_tbl_.find(tuple) != vxOpmap_tbl_.end()) {
+      vxOpmap_tbl_[tn->fields[i]] =
+          std::make_shared<OpSetup>(vxOpmap_tbl_[tuple]->specs_[i]);
+    }
   }
   // Pre-order visitor
   for (const auto &field : tn->fields) {
@@ -282,6 +289,7 @@ RawGraphDef GraphMakerImpl::Create(const Function &func) {
   vxOpmap_tbl_ = MakeTensor(this->module_, this->var_, func->body);
   std::vector<tvx::TensorSpec> input_spec, output_spec;
   for (const auto &param : func->params) {
+    if (vxOpmap_tbl_.find(param) == vxOpmap_tbl_.end()) continue;
     quant_info_infer(vxOpmap_tbl_, param, true);
     for (auto &tensor_info : vxOpmap_tbl_[param]->specs_) {
       tensor_info.SetAttribute(tvx::TensorAttribute::INPUT);
@@ -295,6 +303,10 @@ RawGraphDef GraphMakerImpl::Create(const Function &func) {
   final_graph.first->PrintGraph();
   size_t bin_size = -1;
 
+  for (const auto& io_tensor : final_graph.first->OutputsTensor()) {
+      output_spec.push_back(io_tensor->GetSpec());
+  }
+
   bool is_ok = final_graph.first->CompileToBinary(nullptr, &bin_size);
   if (!is_ok) {
     std::cout << "Fatal error: compile to binary failed" << std::endl;
@@ -305,14 +317,6 @@ RawGraphDef GraphMakerImpl::Create(const Function &func) {
   is_ok = final_graph.first->CompileToBinary(nbg_buf.get(), &bin_size);
   assert(is_ok);
 
-  for (auto &pair : vxOpmap_tbl_) {
-    for (auto spec : pair.second->specs_) {
-      if (spec.attr_ & tvx::TensorAttribute::OUTPUT) {
-        output_spec.push_back(spec);
-      }
-    }
-  }
-
   RawGraphDef result;
   result.compiled_graph = nbg_buf;
   result.compiled_graph_size = bin_size;
@@ -322,7 +326,7 @@ RawGraphDef GraphMakerImpl::Create(const Function &func) {
 }
 
 void GraphMakerImpl::VisitInferred(const Expr &expr) {
-  if (vxOpmap_tbl_.find(expr) != vxOpmap_tbl_.end()) {
+  if (vxOpmap_tbl_.find(expr) != vxOpmap_tbl_.end() || expr->IsInstance<TupleNode>()) {
     VisitExpr(expr);  // base class visit API
   }
   //VisitExpr(expr);
@@ -337,8 +341,16 @@ void GraphMakerImpl::VisitExpr_(const CallNode *cn) {
 
 void GraphMakerImpl::VisitExpr_(const TupleNode *tn) {
   Tuple tuple = GetRef<Tuple>(tn);
+  std::cout << "GraphMakerImpl::VisitExpr_(TupleNode): " << tn->fields.size() << std::endl;
   for (size_t i = 0; i < tn->fields.size(); i++) {
-    vxOpmap_tbl_[tn->fields[i]]->ptensors_ = {vxOpmap_tbl_[tuple]->ptensors_[i]};
+    if (vxOpmap_tbl_.find(tuple) != vxOpmap_tbl_.end() && vxOpmap_tbl_[tuple] != nullptr) {
+      vxOpmap_tbl_[tn->fields[i]]->ptensors_ = {
+          vxOpmap_tbl_[tuple]->ptensors_[i]};
+    } else if (vxOpmap_tbl_[tn->fields[i]] != nullptr) {
+      auto input =
+          vx_graph_->CreateTensor(vxOpmap_tbl_[tn->fields[i]]->specs_[0]);
+      vxOpmap_tbl_[tn->fields[i]]->SetTensor(input);
+    }
   }
   for (const auto &arg : tuple->fields) {
     VisitInferred(arg);

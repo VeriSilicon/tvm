@@ -38,9 +38,9 @@ namespace runtime {
 namespace vsi_npu {
 PackedFunc VsiNpuModule::GetFunction(const std::string& name, const ObjectPtr<Object>& sptr_to_self) {
   std::string vsi_graph_name = "tvmgen_default_vsi_npu_0";
-  std::cout << "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDebug " << name << std::endl;
+  std::cout << "VsiNpuModule::GetFunction: " << name << std::endl;
   if (name != vsi_graph_name){
-  std::cout << "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDebug return early" << std::endl;
+  std::cout << "VsiNpuModule::GetFunction: return early" << std::endl;
     return PackedFunc();
   }
 
