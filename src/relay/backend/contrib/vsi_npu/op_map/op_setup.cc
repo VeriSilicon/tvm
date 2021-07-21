@@ -94,6 +94,13 @@ tim::vx::DataType GetTvxType(DataType dtype) {
     return tvx::DataType::UNKNOWN;
 };
 
+void insert_op_map_table(std::map<Expr, std::shared_ptr<OpSetup>> &vxOpmap_tbl,
+                         Expr expr, std::shared_ptr<OpSetup> op) {
+  if (vxOpmap_tbl.find(expr) == vxOpmap_tbl.end()) {
+    vxOpmap_tbl[expr] = op;
+  }
+}
+
 void OpSetup::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx::Graph> graph,
                              std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
   UpdateOutputTableInfo(vxOpmap_tbl, expr_key_, graph.get());
@@ -127,10 +134,8 @@ void VsiNpuQnnConv2d::SetupOperand(const CallNode* cn, tim::vx::Quantization& qu
   weight_key_ = conv_->args[Weight_Field::arg_pos];
   bias_key_ = add->args[Bias_Field::arg_pos];
 
-  if (vxOpmap_tbl.find(input_key_) == vxOpmap_tbl.end()) {
-    vxOpmap_tbl[input_key_] =
-        std::make_shared<OpSetup>(Input_Field::AsTimVxTensorSpec(conv_, conv_));
-  }
+  insert_op_map_table(vxOpmap_tbl, input_key_,
+    std::make_shared<OpSetup>(Input_Field::AsTimVxTensorSpec(conv_, conv_)));
 
   tim::vx::TensorSpec weight_spec = Weight_Field::AsTimVxTensorSpec(conv_, conv_);
   tim::vx::TensorSpec bias_spec = Bias_Field::AsTimVxTensorSpec(add, requantize);
@@ -201,14 +206,10 @@ void VsiNpuQnnAvgPool::SetupOperand(const CallNode* cn, tim::vx::Quantization& q
 
   input_key_ = call_->args[Input_Field::arg_pos];
 
-  if (vxOpmap_tbl.find(input_key_) != vxOpmap_tbl.end()) {
-    return;
-  }
-
   auto input_callback =
       std::make_shared<CallbackExpr>(input_key_, vxOpmap_tbl[expr_key_]->pCallbackexpr_);
-  vxOpmap_tbl[input_key_] =
-      std::make_shared<OpSetup>(Input_Field::AsTimVxTensorSpec(call_), input_callback);
+  insert_op_map_table(vxOpmap_tbl, input_key_,
+    std::make_shared<OpSetup>(Input_Field::AsTimVxTensorSpec(call_), input_callback));
 };
 
 std::shared_ptr<tim::vx::Operation> VsiNpuQnnAvgPool::CreateOperation(std::shared_ptr<tim::vx::Graph> graph) {
@@ -434,13 +435,10 @@ void ElementWiseQnnOp::SetupOperand(const CallNode* cn, tim::vx::Quantization& q
 
   input_key_ = call_->args[Input_0::arg_pos];
   input2_key_ = call_->args[Input_1::arg_pos];
-  if (vxOpmap_tbl.find(input_key_) == vxOpmap_tbl.end()) {
-    vxOpmap_tbl[input_key_] = std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_, call_));
-  }
-
-  if (vxOpmap_tbl.find(input2_key_) == vxOpmap_tbl.end()) {
-    vxOpmap_tbl[input2_key_] = std::make_shared<OpSetup>(Input_1::AsTimVxTensorSpec(call_, call_));
-  }
+  insert_op_map_table(vxOpmap_tbl, input_key_,
+    std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_, call_)));
+  insert_op_map_table(vxOpmap_tbl, input2_key_,
+    std::make_shared<OpSetup>(Input_1::AsTimVxTensorSpec(call_, call_)));
   UpdateOutputQuantInfo(call_, out_scale_idx, out_zp_idx, quant_info);
 }
 
@@ -472,10 +470,10 @@ void ElementWiseNotypeOp::SetupOperand(const CallNode* cn, tim::vx::Quantization
       std::make_shared<CallbackExpr>(input2_key_, vxOpmap_tbl[expr_key_]->pCallbackexpr_);
 
   //auto dtype = input_key_->checked_type().as<TensorTypeNode>()->dtype;
-
-  vxOpmap_tbl[input_key_] = std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_),input_callback);
-  vxOpmap_tbl[input2_key_] = std::make_shared<OpSetup>(Input_1::AsTimVxTensorSpec(call_),input2_callback);
-
+  insert_op_map_table(vxOpmap_tbl, input_key_,
+    std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_),input_callback));
+  insert_op_map_table(vxOpmap_tbl, input2_key_,
+    std::make_shared<OpSetup>(Input_1::AsTimVxTensorSpec(call_),input2_callback));
   (void)quant_info;
 }
 
@@ -520,8 +518,10 @@ void TwoBoolInputSetup::SetupOperand(const CallNode* cn, tim::vx::Quantization& 
   expr_key_ = GetRef<Expr>(cn);
   input0_key_ = call_->args[Input_0::arg_pos];
   input1_key_ = call_->args[Input_1::arg_pos];
-  vxOpmap_tbl[input0_key_] = std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_));
-  vxOpmap_tbl[input1_key_] = std::make_shared<OpSetup>(Input_1::AsTimVxTensorSpec(call_));
+  insert_op_map_table(vxOpmap_tbl, input0_key_,
+    std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_)));
+  insert_op_map_table(vxOpmap_tbl, input1_key_,
+    std::make_shared<OpSetup>(Input_1::AsTimVxTensorSpec(call_)));
 
   (void)quant_info;
 
@@ -559,8 +559,10 @@ void TwoFloatInputOpSetup::SetupOperand(const CallNode* cn, tim::vx::Quantizatio
   expr_key_ = GetRef<Expr>(cn);
   input0_key_ = call_->args[Input_0::arg_pos];
   input1_key_ = call_->args[Input_1::arg_pos];
-  vxOpmap_tbl[input0_key_] = std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_));
-  vxOpmap_tbl[input1_key_] = std::make_shared<OpSetup>(Input_1::AsTimVxTensorSpec(call_));
+  insert_op_map_table(vxOpmap_tbl, input0_key_,
+    std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_)));
+  insert_op_map_table(vxOpmap_tbl, input1_key_,
+    std::make_shared<OpSetup>(Input_1::AsTimVxTensorSpec(call_)));
 }
 
 void Add::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx::Graph> graph,
@@ -778,9 +780,8 @@ void QnnRequantize::SetupOperand(const CallNode* cn, tim::vx::Quantization& quan
 
   using Input_0 = Field_Quant_Operand<0, 1, 2>;
   input_key_ = call_->args[Input_0::arg_pos];
-  if (vxOpmap_tbl.find(input_key_) == vxOpmap_tbl.end()) {
-    vxOpmap_tbl[input_key_] = std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_, call_));
-  }
+  insert_op_map_table(vxOpmap_tbl, input_key_,
+    std::make_shared<OpSetup>(Input_0::AsTimVxTensorSpec(call_, call_)));
 
   UpdateOutputQuantInfo(call_, out_scale_idx, out_zp_idx, quant_info);
 };
