@@ -495,41 +495,6 @@ def test_float32_conv2d_permute():
     print("Testing {0: <50}".format("CONV2D"), end="")
     verify_vsi_result(inputs, out, params, data_shape, out_shape, dtype)
 
-def test_float32_conv2d_permute():
-    data_shape = (1, 4, 4, 4)
-    weight_shape = (3, 3, 4, 5)
-    out_shape = (1, 2, 2, 5)
-    dtype="float32"
-    Pad=(0,0,1,1)
-    Strides=(2,2)
-    Dilation=(1,1)
-    Ksize=(3,3)
-    Groups=1
-
-    data = relay.var("data", shape=data_shape, dtype=dtype)
-    weight = relay.var("weight",shape=weight_shape,dtype=dtype)
-    out = relay.nn.conv2d(
-            data,
-            weight,
-            channels=weight_shape[3],
-            padding=Pad,
-            kernel_size=Ksize,
-            strides=Strides,
-            groups=Groups,
-            data_layout="NHWC",
-            kernel_layout="HWIO"
-        )
-    inputs = {
-        "data": tvm.nd.array(np.random.uniform(size=data_shape).astype(dtype)),
-    }
-
-    params = {
-        #"weight": tvm.nd.array(np.arange(3*4*3*5).reshape(weight_shape).astype(dtype)),
-        "weight": tvm.nd.array(np.random.uniform(size=weight_shape).astype(dtype)),
-    }
-    print("Testing {0: <50}".format("CONV2D"), end="")
-    verify_vsi_result(inputs, out, params, data_shape, out_shape, dtype)
-
 def test_float32_depthwise_conv2d_permute():
     data_shape = (1, 28, 28, 192)
     weight_shape = (3, 3, 192, 1)
@@ -1675,7 +1640,7 @@ if __name__ == "__main__":
     #test_float_leaky_relu()
     #test_uint8_leaky_relu()
     #test_float_softmax()
-    #test_float32_conv2d_permute()
+    # test_float32_conv2d_permute()
     #test_float32_depthwise_conv2d_permute()
     #test_float_reshape()
     #test_float_tranpose()
@@ -1687,7 +1652,7 @@ if __name__ == "__main__":
     #test_float_avg_pool()
     #test_float32_pattern()
     #test_uint8_depthwiseconv2d_pattern()
-    #test_uint8_conv2d_pattern()
+    test_uint8_conv2d_pattern()
     #test_uint8_avg_pool()
     #test_uint8_softmax()
     #test_uint8_reshape()
@@ -1697,7 +1662,7 @@ if __name__ == "__main__":
     #test_uint8_resizeBilinear()
     #test_uint8_argmax()
     #test_float_sigmoid()
-    #test_uint8_sigmoid()
+    # test_uint8_sigmoid()
     #test_float_batch_norm()
     #test_uint8_fullconnected()
     #test_uint8_argmin()
@@ -1714,5 +1679,5 @@ if __name__ == "__main__":
     #test_uint8_mean()
     #test_requantize()
     #test_uint8_transpose_conv2d_pattern()
-    test_uint8_transpose_conv2d_pattern2()
+    # test_uint8_transpose_conv2d_pattern2()
     #test_uint8_tanh()

@@ -69,8 +69,9 @@ PackedFunc VsiNpuModule::GetFunction(const std::string& name, const ObjectPtr<Ob
     this->vx_graph_->Compile();
     // prepare input
     std::vector<DLTensor*> in_tensors_tvm(this->inputs_.size());
+    uint8_t argc = 0;
     for (uint32_t i = 0; i < this->inputs_.size(); i++) {
-      in_tensors_tvm[i] = args[i];
+      in_tensors_tvm[i] = args[argc++];
       inputs[i]->CopyDataToTensor(static_cast<uint8_t*>(in_tensors_tvm[i]->data),
                                   GetDataSize(*(in_tensors_tvm[i])));
     }
@@ -83,10 +84,13 @@ PackedFunc VsiNpuModule::GetFunction(const std::string& name, const ObjectPtr<Ob
     tmsEnd = get_perf_count();
     msVal = (tmsEnd - tmsStart) / 1000000;
     usVal = (tmsEnd - tmsStart) / 1000;
-    printf("Process Graph: %ldms or %ldus\n", msVal, usVal);
+    printf("Process Graph: %ld ms or %ld us\n", msVal, usVal);
     // get output
-    DLTensor* out_tensor_tvm = args[args.size() - 1];
-    outputs[0]->CopyDataFromTensor(static_cast<uint8_t*>(out_tensor_tvm->data));
+    std::cout << "VsiNpuModule::GetFunction: size: " << args.size() <<std::endl;
+    for (uint32_t i = 0; i < this->outputs_.size(); i++) {
+      DLTensor* out_tensor_tvm = args[argc++];
+      outputs[i]->CopyDataFromTensor(static_cast<uint8_t*>(out_tensor_tvm->data));
+    }
   });
 }
 
