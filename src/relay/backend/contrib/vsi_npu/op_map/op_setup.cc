@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 #include "op_setup.h"
 #include "field.h"
 #include "helper.h"
@@ -105,7 +123,7 @@ void OpSetup::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx::Graph>
                              std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
   UpdateOutputTableInfo(vxOpmap_tbl, expr_key_, graph.get());
   UpdateInputTableInfo(vxOpmap_tbl, input_key_, graph.get());
-  
+
   auto op = CreateOperation(graph);
   (*op).BindInput(vxOpmap_tbl[input_key_]->ptensors_[0]);
   (*op).BindOutput(vxOpmap_tbl[expr_key_]->ptensors_[0]);
@@ -145,7 +163,7 @@ void VsiNpuQnnConv2d::SetupOperand(const CallNode* cn, tim::vx::Quantization& qu
   bias_spec.shape_.resize(1);
 
   vxOpmap_tbl[bias_key_] = std::make_shared<OpSetup>(bias_spec);
-  
+
   UpdateOutputQuantInfo(requantize, kRequant_output_scale_idx, kRequant_output_zp_idx, quant_info);
 };
 

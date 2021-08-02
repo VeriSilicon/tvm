@@ -1,3 +1,20 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
 import tvm.ir
 from tvm.relay import transform
 from ...dataflow_pattern import wildcard, is_op, is_constant
@@ -6,36 +23,9 @@ from ... import qnn as _qnn
 from . import vsi_npu_ffi_api as support_api
 from tvm.relay.build_module import bind_params_by_name
 
-# def _register_external_op_helper(op_name, supported=True):
-#     """The helper function to indicate that a given operator can be supported
-#     by DNNL.
-
-#     Paramters
-#     ---------
-#     op_name : Str
-#         The name of operator that will be registered.
-
-#     Returns
-#     -------
-#     f : callable
-#         A function that returns if the operator is supported by DNNL.
-#     """
-#     print("Sven-TVM: python vsi-npu")
-#     @tvm.ir.register_op_attr(op_name, "target.vsi_npu")
-#     def _func_wrapper(attrs, args):
-#         return supported
-
-#     return _func_wrapper
-
-# _register_external_op_helper("add")
-
 @register_pattern_table("vsi_npu")
 def vsi_npu_pattern_table():
-    # conv2d_bias_relu_pat = ("dnnl.conv2d_bias_relu", make_pattern(with_bias=True))
-    # conv2d_relu_pat = ("dnnl.conv2d_relu", make_pattern(with_bias=False))
-    # dnnl_patterns = [conv2d_bias_relu_pat, conv2d_relu_pat]
 
-    print("vsi_npu.py --> pattern_table()")
     def qnn_conv_pattern():
         """Create a quantized convolution pattern.
 
@@ -90,25 +80,7 @@ def vsi_npu_pattern_table():
         pattern = is_op("qnn.quantize")(pattern, is_constant(), is_constant())
         return pattern
 
-    # def qnn_fullconnected_pattern():
-    #     pattern = is_op("reshape")(wildcard())
-    #     pattern = is_op("qnn.dense")(
-    #         pattern, is_constant(), is_constant(), is_constant(), is_constant(), is_constant()
-    #     )
-    #     pattern = pattern.optional(lambda x: (is_op("nn.bias_add")(
-    #         x, is_constant()) | is_op("add")(x, is_constant())))
-    #     pattern = is_op("qnn.requantize")(
-    #         pattern, is_constant(), is_constant(), is_constant(), is_constant()
-    #     )
-
     def qnn_dense_pattern():
-        """Create a quantized convolution pattern.
-
-        Returns
-        -------
-        pattern : dataflow_pattern.AltPattern
-            Denotes the convolution pattern.
-        """
         pattern = is_op("qnn.dense")(
             wildcard(), is_constant(), is_constant(), is_constant(), is_constant(), is_constant()
         )
@@ -128,7 +100,7 @@ def vsi_npu_pattern_table():
     def qnn_deconv_pattern():
         pattern = is_op("qnn.conv2d_transpose")(
             wildcard(), is_constant(), is_constant(), is_constant(), is_constant(), is_constant()
-        )    
+        )
         pattern = is_op("qnn.requantize")(
             pattern, is_constant(), is_constant(), is_constant(), is_constant()
         )
@@ -188,13 +160,6 @@ _register_external_op_helper("nn.pad")
 _register_external_op_helper("nn.leaky_relu")
 _register_external_op_helper("nn.conv2d_transpose")
 
-# @tvm.ir.register_op_attr("layout_transform", "target.vsi_npu")
-# def layout_transform(attrs, args):
-#     """Check if the external VSI codegen should be used."""
-#     if attrs.src_layout == "NHWC" and attrs.dst_layout == "NCHW" and args[0].checked_type.dtype != "uint8":
-#         return True
-#     return True
-
 def partition_for_vsi_npu(mod, params=None):
     """Partition the graph greedily offloading supported
     operators to VSI NPU.
@@ -213,14 +178,9 @@ def partition_for_vsi_npu(mod, params=None):
     if params:
         mod["main"] = bind_params_by_name(mod["main"], params)
 
-    # desired_layouts = {'nn.conv2d' : ['WHCN', 'WHIO'],
-    #                     'nn.avg_pool2d' : ['WHCN']}
-    #desired_layouts = {'nn.conv2d' : ['NCHW', 'OIHW']}
-    desired_layouts = {}
     seq = tvm.transform.Sequential(
         [
             transform.RemoveUnusedFunctions(),
-            transform.ConvertLayout(desired_layouts),
             transform.FoldConstant(),
             transform.MergeComposite(vsi_npu_pattern_table()),
             transform.AnnotateTarget("vsi_npu"),
