@@ -77,7 +77,7 @@ We need copy or map the while TVM source code(python part and target_runtime_bui
 
 ```bash
     # 0. Set correct NPU target name for your device, you can learned this from your soc vendor
-    export VSIMULATOR_TARGET=PID_0x99
+    export VSIMULATOR_CONFIG=PID_0x99
     # 1. Set up testcase, please refer model list from tests/python/contrib/test_vsi_npu/test_vsi_tflite_model_all.py
     export TFLITE_MODEL="<full/path/to/mobilenet_v1_1.0_224_quant.tflite>"
     # 2. Setup corss compile toolchain configuration 
