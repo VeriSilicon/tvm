@@ -14,19 +14,26 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+import os
+import logging
 import tvm
 from tvm import relay
 import numpy as np
-from tvm.contrib import graph_executor as graph_runtime 
+from tvm.contrib import graph_executor as graph_runtime
 from tvm.relay.op.contrib import vsi_npu
 from tvm import rpc
 from tvm.contrib import utils as util
-import os
+from tvm.testing import assert_allclose
+
+logging.basicConfig(level=logging.DEBUG)
 
 RPC_HOST = os.environ["RPC_HOST"]
 RPC_PORT = int(os.environ["RPC_PORT"])
 CROSS_CC = os.environ["CROSS_CC"]
 ROOTFS = os.environ["ROOTFS"]
+logging.info("Connect to {}:{} ...".format(RPC_HOST, RPC_PORT))
+remote = rpc.connect(RPC_HOST, RPC_PORT, session_timeout=6000)
+
 
 def make_module(func, params):
     func = relay.Function(relay.analysis.free_vars(func), func)
@@ -35,7 +42,6 @@ def make_module(func, params):
     return tvm.IRModule.from_expr(func)
 
 def get_vsi_model(mod, params):
-    remote = rpc.connect(RPC_HOST, RPC_PORT)
     tmp_path = util.tempdir()
     lib_name = "model.so"
     lib_path = tmp_path.relpath(lib_name)
@@ -49,8 +55,8 @@ def get_vsi_model(mod, params):
         lib  = relay.build(mod, target, params=params)
         lib.export_library(lib_path, fcompile=False, **kwargs)
 
-    print(lib_path)
-    print(lib_name)
+    logging.info(lib_path)
+    logging.info(lib_name)
     remote.upload(lib_path)
     lib = remote.load_module(lib_name)
     ctx = remote.cpu()
@@ -65,18 +71,17 @@ def get_vsi_result(data, mod, params, out_shape, dtype):
     rt_mod.run()
     rt_out = tvm.nd.array(np.zeros(out_shape, dtype=dtype), ctx)
     rt_mod.get_output(0, rt_out)
-    print(data)
+    logging.info(data)
     return rt_out
 
 def benchmark_vsi(mod, params, repeat=50):
     rt_mod, ctx = get_vsi_model(mod, params)
 
-    print("Evaluate graph runtime inference cost on VSI NPU")
+    logging.info("Evaluate graph runtime inference cost on VSI NPU")
     ftimer = rt_mod.module.time_evaluator("run", ctx, number=1, repeat=repeat)
     # Measure in millisecond.
     prof_res = np.array(ftimer().results) * 1000
-    print("VSI NPU runtime inference time (std dev): %.2f ms (%.2f ms)"
-            % (np.mean(prof_res), np.std(prof_res)))
+    logging.info("VSI NPU runtime inference time (std dev): {} ms ({} ms)".format(round(np.mean(prof_res), 2), round(np.std(prof_res), 2)))
 
     return np.mean(prof_res)
 
@@ -94,7 +99,7 @@ def get_ref_result(data, mod, params, out_shape, dtype):
     target = "llvm"
     with tvm.transform.PassContext(opt_level=3, disabled_pass=["AlterOpLayout"]):
         lib  = relay.build(mod, target, params=params)
-    print(mod.astext())
+    logging.info(mod.astext())
 
     cpu_mod = graph_runtime.GraphModule(lib["default"](tvm.cpu()))
     cpu_mod.set_input(**data)
@@ -103,28 +108,14 @@ def get_ref_result(data, mod, params, out_shape, dtype):
     return cpu_out
 
 def verify_vsi_result(inputs, model, params, data_shape, out_shape, dtype="float32"):
-    wait=input("1. press any key and continue...")
+    # wait=input("1. press any key and continue...")
     mod = make_module(model, params)
-
     ref_out = get_ref_result(inputs, mod, params, out_shape, dtype)
-
-    try:
-        vsi_out = get_vsi_result(inputs, mod, params, out_shape, dtype)
-        print("ref_out",ref_out)
-        print("vsi_out",vsi_out)
-        if dtype == "uint8":
-            atol = 1
-            rtol = 1.0 / 255
-        else:
-            atol = 1e-3
-            rtol = 1e-3
-        tvm.testing.assert_allclose(ref_out.asnumpy(), vsi_out.asnumpy(), rtol=rtol, atol=atol)
-
-    except Exception as err:
-         print("\nExpected output: ")
-         print(ref_out.asnumpy())
-         print("Actual output: ")
-         print(err)
-         print("FAIL")
+    vsi_out = get_vsi_result(inputs, mod, params, out_shape, dtype)
+    if dtype == "uint8":
+        atol = 1
+        rtol = 1.0 / 255
     else:
-         print("PASS")
+        atol = 1e-3
+        rtol = 1e-3
+    assert_allclose(vsi_out.numpy(), ref_out.numpy(), rtol=rtol, atol=atol)
