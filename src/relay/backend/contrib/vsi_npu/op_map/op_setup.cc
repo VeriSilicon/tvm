@@ -172,24 +172,44 @@ void VsiNpuQnnConv2d::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx
   TvxConv2dAttrs tvx_attrs(conv_);
   UpdateInputTableInfo(vxOpmap_tbl, input_key_, graph.get());
   UpdateInputTableInfo(vxOpmap_tbl, bias_key_, graph.get());
-
   UpdateOutputTableInfo(vxOpmap_tbl, expr_key_, graph.get());
 
   bool is_depthwise_conv =
       (static_cast<uint32_t>(tvx_attrs.groups) == vxOpmap_tbl[input_key_]->specs_[0].shape_[0])
       && (static_cast<uint32_t>(tvx_attrs.groups) != 1);
 
-  auto weight_spec = vxOpmap_tbl[weight_key_]->specs_[0];
-  uint32_t kernel_ic = weight_spec.shape_[1];
-  uint32_t kernel_oc = weight_spec.shape_[0];
+  auto& weight_spec = vxOpmap_tbl[weight_key_]->specs_[0];
+  uint32_t kernel_ic, kernel_oc;
+  tim::vx::DataLayout kernel_layout;
+  if (tvx_attrs.data_layout == tim::vx::DataLayout::WHCN) {
+    // input layout: WHCN, kernel layout: WHIcOc
+    kernel_layout = tim::vx::DataLayout::WHIcOc;
+    kernel_ic = weight_spec.shape_[2];
+    kernel_oc = weight_spec.shape_[3];
 
-  if(is_depthwise_conv && kernel_oc != 1){
-    vxOpmap_tbl[weight_key_]->specs_[0].shape_[0]= 1;
-    vxOpmap_tbl[weight_key_]->specs_[0].shape_[1]= kernel_ic*kernel_oc;
+    if(is_depthwise_conv && kernel_oc != 1){
+      weight_spec.shape_[3]= 1;
+      weight_spec.shape_[2]= kernel_ic*kernel_oc;
+    }
+
+    if(weight_spec.quantization_.Scales().size() != 1 && is_depthwise_conv){
+      weight_spec.quantization_.SetChannelDim(1);
+    }
   }
+  else {
+    // input layout: CWHN, kernel layout: OcIcWH
+    kernel_layout = tim::vx::DataLayout::OcIcWH;
+    kernel_ic = weight_spec.shape_[1];
+    kernel_oc = weight_spec.shape_[0];
 
-  if(vxOpmap_tbl[weight_key_]->specs_[0].quantization_.Scales().size() != 1 && is_depthwise_conv){
-    vxOpmap_tbl[weight_key_]->specs_[0].quantization_.SetChannelDim(1);
+    if(is_depthwise_conv && kernel_oc != 1){
+      weight_spec.shape_[0]= 1;
+      weight_spec.shape_[1]= kernel_ic*kernel_oc;
+    }
+
+    if(weight_spec.quantization_.Scales().size() != 1 && is_depthwise_conv){
+      weight_spec.quantization_.SetChannelDim(1);
+    }
   }
 
   UpdateInputTableInfo(vxOpmap_tbl, weight_key_, graph.get());
@@ -201,7 +221,7 @@ void VsiNpuQnnConv2d::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx
       std::array<uint32_t, 2>{tvx_attrs.dilation[0], tvx_attrs.dilation[1]},
       std::array<uint32_t, 4>{tvx_attrs.padding[0], tvx_attrs.padding[1], tvx_attrs.padding[2],
                               tvx_attrs.padding[3]},
-      is_depthwise_conv ? kernel_oc : 0, tim::vx::DataLayout::CWHN, tim::vx::DataLayout::OcIcWH);
+      is_depthwise_conv ? kernel_oc : 0, tvx_attrs.data_layout, kernel_layout);
 
   (*op).BindInputs({vxOpmap_tbl[input_key_]->ptensors_[0], vxOpmap_tbl[weight_key_]->ptensors_[0],
                     vxOpmap_tbl[bias_key_]->ptensors_[0]});
@@ -236,7 +256,53 @@ std::shared_ptr<tim::vx::Operation> VsiNpuQnnAvgPool::CreateOperation(std::share
         tvx::PoolType::AVG, tvx_attrs.pad_type,
         std::array<uint32_t, 2>{tvx_attrs.pool_size[0], tvx_attrs.pool_size[1]},
         std::array<uint32_t, 2>{tvx_attrs.strides[0], tvx_attrs.strides[1]},
-        tvx_attrs.ceil_mode, tvx::DataLayout::CWHN);
+        tvx_attrs.ceil_mode, tvx_attrs.layout);
+}
+
+void VsiNpuQnnAdaptiveAvgPool::SetupOperand(const CallNode* cn, tim::vx::Quantization& quant_info,
+                                    std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
+  using Input_Field = Field_NoQuant_Operand<0>;
+
+  call_ = GetRef<Call>(cn);
+  expr_key_ = GetRef<Expr>(cn);
+
+  const CallNode* callnode = cn->op.as<FunctionNode>()->body.as<CallNode>();
+  auto expr = GetRef<Expr>(callnode);
+  // extract calls in pattern
+  Call cast_out = Downcast<Call>(expr);
+  avgpool_ = Downcast<Call>(cast_out->args[0]);
+  Call cast_in = Downcast<Call>(avgpool_->args[0]);
+
+  input_key_ = call_->args[Input_Field::arg_pos];
+
+  auto input_callback =
+      std::make_shared<CallbackExpr>(input_key_, vxOpmap_tbl[expr_key_]->pCallbackexpr_);
+  insert_op_map_table(vxOpmap_tbl, input_key_,
+    std::make_shared<OpSetup>(Input_Field::AsTimVxTensorSpec(call_), input_callback));
+};
+
+void VsiNpuQnnAdaptiveAvgPool::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx::Graph> graph,
+                      std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
+  TvxAdaptivePool2DAttrs tvx_attrs(avgpool_);
+  UpdateOutputTableInfo(vxOpmap_tbl, expr_key_, graph.get());
+  UpdateInputTableInfo(vxOpmap_tbl, input_key_, graph.get());
+  std::array<uint32_t, 2> input_size;
+  auto& shape = vxOpmap_tbl[input_key_]->specs_[0].shape_;
+  if (tvx_attrs.layout == tim::vx::DataLayout::WHCN) {
+    input_size[0] = shape[0];
+    input_size[1] = shape[1];
+  } else { // tim::vx::DataLayout::CWHN
+    input_size[0] = shape[1];
+    input_size[0] = shape[2];
+  }
+
+  auto op = graph->CreateOperation<tvx::ops::Pool2d>(
+        tvx::PoolType::AVG,
+        input_size,
+        std::array<uint32_t, 2>{tvx_attrs.output_size[0], tvx_attrs.output_size[1]},
+        tvx::RoundType::FLOOR, tvx_attrs.layout);
+  (*op).BindInput(vxOpmap_tbl[input_key_]->ptensors_[0]);
+  (*op).BindOutput(vxOpmap_tbl[expr_key_]->ptensors_[0]);
 }
 
 void VsiNpuQnnMean::SetupOperand(const CallNode* cn, tim::vx::Quantization& quant_info,
@@ -433,7 +499,7 @@ std::shared_ptr<tim::vx::Operation> AvgPool::CreateOperation(std::shared_ptr<tim
       tim::vx::PoolType::AVG, tim::vx::PadType::VALID,
       std::array<uint32_t, 2>{tvx_attrs.pool_size[0], tvx_attrs.pool_size[1]},
       std::array<uint32_t, 2>{tvx_attrs.strides[0], tvx_attrs.strides[1]}, tvx_attrs.ceil_mode,
-      tim::vx::DataLayout::CWHN);
+      tvx_attrs.layout);
 }
 
 std::shared_ptr<tim::vx::Operation> Transpose::CreateOperation(std::shared_ptr<tim::vx::Graph> graph) {
@@ -900,7 +966,7 @@ std::shared_ptr<tim::vx::Operation> MaxPool2d::CreateOperation(
       tim::vx::PoolType::MAX, tvx_attrs.pad_type,
       std::array<uint32_t, 2>{tvx_attrs.pool_size[0], tvx_attrs.pool_size[1]},
       std::array<uint32_t, 2>{tvx_attrs.strides[0], tvx_attrs.strides[1]}, tvx_attrs.ceil_mode,
-      tim::vx::DataLayout::CWHN);
+      tvx_attrs.layout);
 }
 
 void Pad::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx::Graph> graph,
