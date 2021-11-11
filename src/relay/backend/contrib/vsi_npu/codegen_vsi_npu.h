@@ -84,7 +84,7 @@ private:
 
   // TODO:
   void VisitExpr_(const TupleNode *tn) final;
-  void VisitExpr_(const TupleGetItemNode *tg) final{
+  void VisitExpr_(const TupleGetItemNode *tg) final {
     std::cout << "TensorMakerImpl: TupleGetItemNode" << std::endl;
   };
   void VisitExpr_(const FunctionNode *fn) final {
