@@ -471,6 +471,17 @@ class Squeeze : public NoTypeOpSetup {
       std::shared_ptr<tim::vx::Graph> graph) override;
 };
 
+class Dropout : public OpSetup {
+ public:
+  using OpSetup::OpSetup;
+  Call dropout_;
+
+  void SetupOperand(const CallNode* cn, tim::vx::Quantization& quant_info,
+                    std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) override;
+
+  std::shared_ptr<tim::vx::Operation> CreateOperation(std::shared_ptr<tim::vx::Graph> graph) override;
+};
+
 class DepthtoSpace : public NoTypeOpSetup {
  public:
   using NoTypeOpSetup::NoTypeOpSetup;

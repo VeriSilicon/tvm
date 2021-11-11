@@ -61,6 +61,8 @@ void attrs_uint_transform(uint32_t tvm_attr, uint32_t& vx_attr) { vx_attr = tvm_
 
 void attrs_int_transform(int tvm_attr, int& vx_attr) { vx_attr = tvm_attr; }
 
+void attrs_float_transform(float tvm_attr, float& vx_attr) { vx_attr = tvm_attr; }
+
 void attrs_roundtype_transform(bool tvm_attr, tim::vx::RoundType& round_type) {
   round_type = tvm_attr ? tim::vx::RoundType::CEILING : tim::vx::RoundType::FLOOR;
 }
@@ -176,6 +178,14 @@ struct TvxSoftmaxAttrs {
   TvxSoftmaxAttrs(const Call call) {
     auto tvm_attr_struct = call->attrs.as<SoftmaxAttrs>();
     attrs_uint_transform(tvm_attr_struct->axis, axis);
+  }
+};
+
+struct TvxDropoutAttrs {
+  float rate;
+  TvxDropoutAttrs(const Call call) {
+    auto tvm_attr_struct = call->attrs.as<DropoutAttrs>();
+    attrs_float_transform(tvm_attr_struct->rate, rate);
   }
 };
 
