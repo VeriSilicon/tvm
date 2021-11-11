@@ -16,6 +16,7 @@
 # under the License.
 
 import tvm.ir
+import numpy as np
 from tvm.relay import transform
 from ...dataflow_pattern import wildcard, is_op, is_constant
 from .register import register_pattern_table
@@ -52,6 +53,12 @@ def vsi_npu_pattern_table():
         """
         pattern = is_op("cast")(wildcard())
         pattern = is_op("nn.avg_pool2d")(pattern)
+        pattern = is_op("cast")(pattern)
+        return pattern
+
+    def qnn_adaptive_avg_pool2d_pattern():
+        pattern = is_op("cast")(wildcard())
+        pattern = is_op("nn.adaptive_avg_pool2d")(pattern)
         pattern = is_op("cast")(pattern)
         return pattern
 
@@ -117,6 +124,7 @@ def vsi_npu_pattern_table():
             ("vsi_npu.qnn_dense",qnn_dense_pattern()),
             ("vsi_npu.qnn_conv2d", qnn_conv_pattern()),
             ("vsi_npu.qnn_avgpool2d", qnn_avg_pool2d_pattern()),
+            ("vsi_npu.adaptive_avg_pool2d", qnn_adaptive_avg_pool2d_pattern()),
             ("vsi_npu.qnn_softmax", qnn_softmax_pattern()),
             ("vsi_npu.qnn_sigmoid", qnn_sigmoid_pattern()),
             ("vsi_npu.qnn_clip", qnn_clip_pattern()),
@@ -165,6 +173,55 @@ _register_external_op_helper("nn.pad")
 _register_external_op_helper("nn.leaky_relu")
 _register_external_op_helper("nn.conv2d_transpose")
 
+
+class QnnQuantizeConstFold(tvm.relay.dataflow_pattern.DFPatternCallback):
+    # A callback class to rewrite the matched pattern to a batch_norm op.
+    def __init__(self, require_type=False):
+        super().__init__(require_type)
+        self.pattern = is_op("qnn.quantize")(
+            is_constant(), is_constant(), is_constant()
+        )
+
+    def callback(self, pre, post, node_map):
+        data = pre.args[0].data.numpy()
+        # print(data)
+        scale = pre.args[1].data.numpy()
+        zp = pre.args[2].data.numpy()
+        data = np.around(data / scale + zp)
+        # print(data)
+        # print(pre.checked_type.dtype)
+        dtype = pre.checked_type.dtype
+        if (dtype == "int8"):
+             return tvm.relay.Constant(tvm.nd.array(data.astype(np.int8)))
+        if (dtype == "int32"):
+            return tvm.relay.Constant(tvm.nd.array(data.astype(np.int32)))
+        return post
+
+class RemoveClipAfterRequantize(tvm.relay.dataflow_pattern.DFPatternCallback):
+    # A callback class to rewrite the matched pattern to a batch_norm op.
+    def __init__(self, require_type=True):
+        super().__init__(require_type)
+        requantize = is_op("qnn.requantize")(
+           wildcard(), is_constant(), is_constant(), is_constant(), is_constant()
+        )
+        clip = is_op("clip")(requantize)
+        self.pattern = is_op("cast")(clip)
+
+    def callback(self, pre, post, node_map):
+        requantize = post.args[0].args[0]
+        dtype = post.attrs.dtype
+        return tvm.relay.qnn.op.requantize(
+            requantize.args[0],
+            requantize.args[1],  # input scale
+            requantize.args[2],  # input zero point
+            requantize.args[3],  # output scale
+            requantize.args[4],  # output zero point
+            out_dtype=dtype,
+            axis = requantize.attrs.axis,
+            rounding = requantize.attrs.rounding
+            )
+        # return post
+
 def partition_for_vsi_npu(mod, params=None):
     """Partition the graph greedily offloading supported
     operators to VSI NPU.
@@ -187,11 +244,26 @@ def partition_for_vsi_npu(mod, params=None):
         [
             transform.RemoveUnusedFunctions(),
             transform.FoldConstant(),
+            # transform.SimplifyExpr(),
+        ]
+    )
+    mod = seq(mod)
+
+    func = mod["main"]
+    func = tvm.relay.Function(func.params, func.body, None, func.type_params, func.attrs)
+
+    func = tvm.relay.dataflow_pattern.rewrite(RemoveClipAfterRequantize(), func)
+    func = tvm.relay.dataflow_pattern.rewrite(QnnQuantizeConstFold(), func)
+
+    mod = tvm.IRModule.from_expr(func)
+    print(mod.astext(show_meta_data=False))
+
+    seq = tvm.transform.Sequential(
+        [
             transform.MergeComposite(vsi_npu_pattern_table()),
             transform.AnnotateTarget("vsi_npu"),
             transform.MergeCompilerRegions(),
             transform.PartitionGraph(),
         ]
     )
-
     return seq(mod)

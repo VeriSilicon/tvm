@@ -3,6 +3,7 @@
 In this implementation, we enabled offload AI-workloads to versilicon's neural network processor.
 
 # Terms
+
 NBG(network binary graph)
 
     NBG is the executeble format for the NPU, we can compile it from host server and deployment it to a target.
@@ -10,7 +11,9 @@ NBG(network binary graph)
 TIM-VX: (**T**ensor **I**nterface **M**odule)[https://github.com/VeriSilicon/TIM-VX]
 
 # Implementation details
+
 We have four parts in this implemetation.
+
 1. register vsi-npu supported operator 
     python/tvm/relay/op/contrib/vsi_npu.py defined supported operator and specific patterns we can support in the NPU.
 2. implemented nbg codegen in compilation
@@ -22,11 +25,16 @@ We have four parts in this implemetation.
 5. CMake build script
     cmake/modules/contrib/VsiNpu.cmake
 
-# Build from source 
+# Build from source
+
+## Prepare
+
+LLVM is needed. You can run `sudo apt install llvm` to install it.
 
 ## Build TIM-VX from source
 
 ## Build tvm as compiler
+
 This step can be executed with a x86 host or arm based target. If you do cross build for your target,
 just add toolchain configuration for cmake.
 
@@ -34,32 +42,36 @@ just add toolchain configuration for cmake.
     mkdir host_compiler_build
     cd host_compiler_build
     cp ../cmake/config.cmake ./
-    # NOTE: config llvm by set USE_LLVM to the llvm-config
-    # add set(USE_VSI_NPU ON) to config.cmake, you can do it with cmake command option too
-    # To speed up build, we can disable other backend in this configuration file
+    # NOTE: 
+    # 1.Config llvm by set USE_LLVM to the llvm-config; (For example: llvm-config-10 on Ubuntu 20.04)
+    # 2.Add set(USE_VSI_NPU ON) to config.cmake;
+    # 3.Disable other backend to speed up build, if you wish.
     cmake -DCMAKE_BUILD_TYPE=Debug -DTIM_VX_INSTALL_DIR=<full_path_to_tim_vx_install> ..
     make tvm -j12
 ```
 
-## Build tvm as runtime 
+## Build tvm as runtime
+
 Usually, NBG runtime will be deployed to embedded device. We need to prepare cross-compile-toolchain for cmake firstly.
 
 ```bash
-   mkdir target_runtime_build
-   cd target_runtime_build
-   cp ../cmake/config.cmake ./
+    mkdir target_runtime_build
+    cd target_runtime_build
+    cp ../cmake/config.cmake ./
     # add set(USE_VSI_NPU ON) to config.cmake, you can do it with cmake command option too
-   cmake -DCMAKE_BUILD_TYPE=Debug -DTIM_VX_INSTALL_DIR=<full_path_to_tim_vx_target_build_install_dir> \
+    cmake -DCMAKE_BUILD_TYPE=Debug -DTIM_VX_INSTALL_DIR=<full_path_to_tim_vx_target_build_install_dir> \
          -DCMAKE_TOOLCHAIN_FILE=<path_to_cross_compile_toolchain.make> ..
-   make runtime -j12
+    make runtime -j12
 ```
 
 # Run the test
 
 ## Option: prepare test models
+
 {todo: model and download link, tensorflow hosted models}
 
 ## start runtime on the target as a service
+
 In this step, we need install some python package required by TVM python packages.
 
 We need copy or map the while TVM source code(python part and target_runtime_build) to the device. 
