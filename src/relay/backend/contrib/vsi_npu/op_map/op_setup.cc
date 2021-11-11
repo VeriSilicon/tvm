@@ -27,26 +27,7 @@
 
 #include "tim/vx/graph.h"
 #include "tim/vx/operation.h"
-#include "tim/vx/ops/conv2d.h"
-#include "tim/vx/ops/activations.h"
-#include "tim/vx/ops/addn.h"
-#include "tim/vx/ops/arg.h"
-#include "tim/vx/ops/concat.h"
-#include "tim/vx/ops/elementwise.h"
-#include "tim/vx/ops/pool2d.h"
-#include "tim/vx/ops/reduce.h"
-#include "tim/vx/ops/resize.h"
-#include "tim/vx/ops/simple_operations.h"
-#include "tim/vx/ops/softmax.h"
-#include "tim/vx/ops/transpose.h"
-#include "tim/vx/ops/reshape.h"
-#include <tim/vx/ops/clip.h>
-#include <tim/vx/ops/fullyconnected.h>
-#include <tim/vx/ops/squeeze.h>
-#include <tim/vx/ops/depth2space.h>
-#include <tim/vx/ops/logical.h>
-#include <tim/vx/ops/pad.h>
-#include <tim/vx/ops/deconv.h>
+#include "tim/vx/ops.h"
 
 namespace tvx = tim::vx;
 
@@ -908,6 +889,43 @@ std::shared_ptr<tim::vx::Operation> Squeeze::CreateOperation(std::shared_ptr<tim
   TvxSqueezeAttrs tvx_attrs(call_);
   return graph->CreateOperation<tim::vx::ops::Squeeze>(tvx_attrs.axis);
 }
+
+std::shared_ptr<tim::vx::Operation> Dropout::CreateOperation(std::shared_ptr<tim::vx::Graph> graph) {
+  TvxDropoutAttrs tvx_attrs(dropout_);
+  return graph->CreateOperation<tim::vx::ops::Dropout>(tvx_attrs.rate);
+}
+
+void Dropout::SetupOperand(const CallNode* cn, tim::vx::Quantization& quant_info,
+                                   std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
+  call_ = GetRef<Call>(cn);
+  expr_key_ = GetRef<Expr>(cn);
+  const TupleGetItemNode* tuple_item_node = cn->op.as<FunctionNode>()->body.as<TupleGetItemNode>();
+  auto expr = GetRef<Expr>(tuple_item_node);
+  // extract calls in pattern
+  TupleGetItem tuple_item = Downcast<TupleGetItem>(expr);
+  const CallNode* callnode = tuple_item->tuple.as<CallNode>();
+  auto expr1 = GetRef<Expr>(callnode);
+  dropout_ = Downcast<Call>(expr1);
+
+  using Input = Field_NoQuant_Operand<0>;
+  input_key_ = call_->args[Input::arg_pos];
+
+  if (vxOpmap_tbl.find(input_key_) != vxOpmap_tbl.end()) {
+    return;
+  }
+
+  tim::vx::Quantization output_quant = vxOpmap_tbl[expr_key_]->specs_[0].quantization_ ;
+  if(output_quant.Type() == tim::vx::QuantType::NONE){
+    auto input_callback =
+      std::make_shared<CallbackExpr>(input_key_, vxOpmap_tbl[expr_key_]->pCallbackexpr_);
+    vxOpmap_tbl[input_key_] =
+      std::make_shared<OpSetup>(Input::AsTimVxTensorSpec(dropout_), input_callback);
+  }else{
+    vxOpmap_tbl[input_key_] =
+      std::make_shared<OpSetup>(Input::AsTimVxTensorSpec(dropout_));
+    vxOpmap_tbl[input_key_]->specs_[0].SetQuantization(output_quant);
+  }
+};
 
 std::shared_ptr<tim::vx::Operation> DepthtoSpace::CreateOperation(std::shared_ptr<tim::vx::Graph> graph) {
   TvxDepthtoSpaceAttrs tvx_attrs(call_);

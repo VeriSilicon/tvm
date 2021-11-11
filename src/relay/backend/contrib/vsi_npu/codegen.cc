@@ -225,7 +225,7 @@ static std::map<std::string, setup_operand_fun_ptr> call_node_table = {
 static std::map<std::string, setup_operand_fun_ptr> func_node_table = {
   DEFINE_NODE_ITEM("vsi_npu.qnn_conv2d", VsiNpuQnnConv2d),
   DEFINE_NODE_ITEM("vsi_npu.qnn_avgpool2d", VsiNpuQnnAvgPool),
-  DEFINE_NODE_ITEM("vsi_npu.adaptive_avg_pool2d", VsiNpuQnnAdaptiveAvgPool),
+  DEFINE_NODE_ITEM("vsi_npu.qnn_adaptive_avg_pool2d", VsiNpuQnnAdaptiveAvgPool),
   DEFINE_NODE_ITEM("vsi_npu.qnn_softmax", VsiNpuQnnSoftmax),
   DEFINE_NODE_ITEM("vsi_npu.qnn_sigmoid", VsiNpuQnnSigmoid),
   DEFINE_NODE_ITEM("vsi_npu.qnn_clip", VsiNpuQnnClip),
@@ -234,6 +234,7 @@ static std::map<std::string, setup_operand_fun_ptr> func_node_table = {
   DEFINE_NODE_ITEM("vsi_npu.qnn_leaky_relu", VsiNpuQnnLeakyRelu),
   DEFINE_NODE_ITEM("vsi_npu.qnn_deconv", VsiNpuQnnDeconv),
   DEFINE_NODE_ITEM("vsi_npu.qnn_tanh", VsiNpuQnnTanh),
+  DEFINE_NODE_ITEM("vsi_npu.dropout", Dropout),
 };
 
 void TensorMakerImpl::InferCall(const CallNode *cn) {
