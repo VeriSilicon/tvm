@@ -69,13 +69,15 @@ def get_ref_result(shape, model_path, image_data, input_tensor_name, DTYPE):
     ref_out = cpu_mod.get_output(0)
     return ref_out.asnumpy()
 
-def compile_tflite_model(shape, model_path, input_data, input_tensor_name, DTYPE):
-    inputs = input_tensor_name
+def compile_pytorch_model(shape, model_path, input_data, input_tensor_name, DTYPE):
+    vsi_input_data = {
+    input_tensor_name: tvm.nd.array(input_data),
+    }
     model = eval(model_path)
     scripted_model = torch.jit.trace(model, torch.from_numpy(input_data))
     scripted_model = scripted_model.eval()
     mod, params = relay.frontend.from_pytorch(
-        scripted_model, [(inputs, shape)]
+        scripted_model, [(input_tensor_name, shape)]
     )
     print(mod.astext())
     remote = rpc.connect(RPC_HOST, RPC_PORT)
@@ -105,7 +107,7 @@ def compile_tflite_model(shape, model_path, input_data, input_tensor_name, DTYPE
 
     # ctx = remote.cpu()
     # rt_mod = graph_runtime.GraphModule(lib["default"](ctx))
-    rt_mod.set_input(**input_data)
+    rt_mod.set_input(**vsi_input_data)
     rt_mod.run()
     rf_output = rt_mod.get_output(0)
     return rf_output.asnumpy()
@@ -143,7 +145,7 @@ DTYPE = model['dtype']
 wait=input("press any key and continue...")
 
 path = "./"
-img = Image.open(path + "Dog_224x224.jpg")
+img = Image.open(path + "space_shuttle_224x224.jpg")
 shape_nhwc = [shape[0], shape[2], shape[3], shape[1]]
 img = img.resize((shape_nhwc[1], shape_nhwc[2]))
 n1 = np.array(img)
@@ -156,11 +158,10 @@ input_data = n1.astype(DTYPE)
 
 # input_data = np.ones(shape, DTYPE)
 
-vsi_input_data = {
-    input_tensor_name: tvm.nd.array(input_data),
-}
+
+vsi_output = compile_pytorch_model(shape, model["model"], input_data, input_tensor_name, DTYPE)
 ref_output = get_ref_result(shape, model["model"], input_data, input_tensor_name, DTYPE)
-vsi_output = compile_tflite_model(shape, model["model"], vsi_input_data, input_tensor_name, DTYPE)
+# vsi_output = compile_pytorch_model(shape, model["model"], vsi_input_data, input_tensor_name, DTYPE)
 
 #print("ref_output:",ref_output)
 #print("vsi_output",vsi_output)
