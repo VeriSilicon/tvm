@@ -189,7 +189,7 @@ class QnnQuantizeConstFold(tvm.relay.dataflow_pattern.DFPatternCallback):
         data = np.around(data / scale + zp)
         dtype = pre.checked_type.dtype
         if (dtype == "int8"):
-             return tvm.relay.Constant(tvm.nd.array(data.astype(np.int8)))
+            return tvm.relay.Constant(tvm.nd.array(data.astype(np.int8)))
         if (dtype == "int32"):
             return tvm.relay.Constant(tvm.nd.array(data.astype(np.int32)))
         return post
@@ -206,16 +206,19 @@ class RemoveClipAfterRequantize(tvm.relay.dataflow_pattern.DFPatternCallback):
     def callback(self, pre, post, node_map):
         requantize = post.args[0].args[0]
         dtype = post.attrs.dtype
-        return tvm.relay.qnn.op.requantize(
-            requantize.args[0],
-            requantize.args[1],  # input scale
-            requantize.args[2],  # input zero point
-            requantize.args[3],  # output scale
-            requantize.args[4],  # output zero point
-            out_dtype=dtype,
-            axis = requantize.attrs.axis,
-            rounding = requantize.attrs.rounding
-            )
+        if (requantize.attrs.out_dtype == "int32"):
+            return tvm.relay.qnn.op.requantize(
+                requantize.args[0],
+                requantize.args[1],  # input scale
+                requantize.args[2],  # input zero point
+                requantize.args[3],  # output scale
+                requantize.args[4],  # output zero point
+                out_dtype=dtype,
+                axis = requantize.attrs.axis,
+                rounding = requantize.attrs.rounding
+                )
+        else:
+            return post
 
 def partition_for_vsi_npu(mod, params=None):
     """Partition the graph greedily offloading supported
