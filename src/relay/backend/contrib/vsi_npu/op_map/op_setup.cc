@@ -938,7 +938,8 @@ void Pad::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx::Graph> gra
     front_size.push_back(pad_size[i - 1]);
   }
 
-  auto op = graph->CreateOperation<tim::vx::ops::Pad>(front_size, back_size, 0);
+  int32_t const_value = vxOpmap_tbl[input_key_]->specs_[0].quantization_.ZeroPoints()[0];
+  auto op = graph->CreateOperation<tim::vx::ops::Pad>(front_size, back_size, const_value);
 
   (*op).BindInput(vxOpmap_tbl[input_key_]->ptensors_[0]);
   (*op).BindOutput(vxOpmap_tbl[expr_key_]->ptensors_[0]);
