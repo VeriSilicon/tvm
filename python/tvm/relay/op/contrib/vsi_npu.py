@@ -211,7 +211,7 @@ class RemoveClipAfterRequantize(tvm.relay.dataflow_pattern.DFPatternCallback):
     def callback(self, pre, post, node_map):
         requantize = post.args[0].args[0]
         dtype = post.attrs.dtype
-        if (requantize.attrs.out_dtype == "int32"):
+        if (requantize.attrs.out_dtype == "int32") and (dtype == "uint8"):
             return tvm.relay.qnn.op.requantize(
                 requantize.args[0],
                 requantize.args[1],  # input scale

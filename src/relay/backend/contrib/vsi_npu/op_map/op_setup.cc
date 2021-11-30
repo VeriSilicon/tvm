@@ -161,54 +161,48 @@ void VsiNpuQnnConv2d::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx
   UpdateInputTableInfo(vxOpmap_tbl, bias_key_, graph.get());
   UpdateOutputTableInfo(vxOpmap_tbl, expr_key_, graph.get());
 
-  bool is_depthwise_conv =
-      (static_cast<uint32_t>(tvx_attrs.groups) == vxOpmap_tbl[input_key_]->specs_[0].shape_[0]) &&
-      (static_cast<uint32_t>(tvx_attrs.groups) != 1);
+  bool is_depthwise_conv;
 
   auto& weight_spec = vxOpmap_tbl[weight_key_]->specs_[0];
+  uint32_t kernel_ic_index, kernel_oc_index;
   uint32_t kernel_ic, kernel_oc;
-  tim::vx::DataLayout kernel_layout;
-  if (tvx_attrs.data_layout == tim::vx::DataLayout::WHCN) {
-    // input layout: WHCN, kernel layout: WHIcOc
-    kernel_layout = tim::vx::DataLayout::WHIcOc;
-    kernel_ic = weight_spec.shape_[2];
-    kernel_oc = weight_spec.shape_[3];
 
-    if(is_depthwise_conv && kernel_oc != 1){
-      weight_spec.shape_[3]= 1;
-      weight_spec.shape_[2]= kernel_ic*kernel_oc;
-    }
-
-    if(weight_spec.quantization_.Scales().size() != 1 && is_depthwise_conv){
-      weight_spec.quantization_.SetChannelDim(1);
-    }
+  if (tvx_attrs.kernel_layout == tim::vx::DataLayout::OcIcWH) {
+    kernel_ic_index = 1;
+    kernel_oc_index = 0;
+  } else if (tvx_attrs.kernel_layout == tim::vx::DataLayout::IcOcWH) {
+    kernel_ic_index = 0;
+    kernel_oc_index = 1;
+  } else { // tim::vx::DataLayout::WHIcOc
+    kernel_ic_index = 2;
+    kernel_oc_index = 3;
   }
-  else {
-    // input layout: CWHN, kernel layout: OcIcWH
-    kernel_layout = tim::vx::DataLayout::OcIcWH;
-    kernel_ic = weight_spec.shape_[1];
-    kernel_oc = weight_spec.shape_[0];
 
-    if(is_depthwise_conv && kernel_oc != 1){
-      weight_spec.shape_[0]= 1;
-      weight_spec.shape_[1]= kernel_ic*kernel_oc;
-    }
+  kernel_ic = weight_spec.shape_[kernel_ic_index];
+  kernel_oc = weight_spec.shape_[kernel_oc_index];
+  is_depthwise_conv =
+      (static_cast<uint32_t>(tvx_attrs.groups) == weight_spec.shape_[kernel_oc_index])
+      && (static_cast<uint32_t>(tvx_attrs.groups) != 1);
 
-    if(weight_spec.quantization_.Scales().size() != 1 && is_depthwise_conv){
-      weight_spec.quantization_.SetChannelDim(1);
-    }
+  if(is_depthwise_conv && kernel_oc != 1){
+    weight_spec.shape_[kernel_oc_index]= 1;
+    weight_spec.shape_[kernel_ic_index]= kernel_ic*kernel_oc;
+  }
+
+  if(weight_spec.quantization_.Scales().size() != 1 && is_depthwise_conv){
+    weight_spec.quantization_.SetChannelDim(kernel_ic_index);
   }
 
   UpdateInputTableInfo(vxOpmap_tbl, weight_key_, graph.get());
 
   auto op = graph->CreateOperation<tim::vx::ops::Conv2d>(
-      is_depthwise_conv ? kernel_ic : kernel_oc, tvx_attrs.pad_type,
+      kernel_oc, tvx_attrs.pad_type,
       std::array<uint32_t, 2>{tvx_attrs.kernel_size[0], tvx_attrs.kernel_size[1]},
       std::array<uint32_t, 2>{tvx_attrs.strides[0], tvx_attrs.strides[1]},
       std::array<uint32_t, 2>{tvx_attrs.dilation[0], tvx_attrs.dilation[1]},
       std::array<uint32_t, 4>{tvx_attrs.padding[0], tvx_attrs.padding[1], tvx_attrs.padding[2],
                               tvx_attrs.padding[3]},
-      is_depthwise_conv ? kernel_oc : 0, tvx_attrs.data_layout, kernel_layout);
+      is_depthwise_conv ? 1 : 0, tvx_attrs.data_layout, tvx_attrs.kernel_layout);
 
   (*op).BindInputs({vxOpmap_tbl[input_key_]->ptensors_[0], vxOpmap_tbl[weight_key_]->ptensors_[0],
                     vxOpmap_tbl[bias_key_]->ptensors_[0]});
@@ -786,25 +780,49 @@ void Conv::SetupOperation(const CallNode* cn, std::shared_ptr<tim::vx::Graph> gr
                           std::map<Expr, std::shared_ptr<OpSetup>>& vxOpmap_tbl) {
   TvxConv2dAttrs tvx_attrs(call_);
   UpdateInputTableInfo(vxOpmap_tbl, input0_key_, graph.get());
+  bool is_depthwise_conv;
 
-  auto input1_spec = vxOpmap_tbl[input1_key_]->specs_[0];
-  uint32_t kernel_ic = input1_spec.shape_[1];
-  uint32_t kernel_oc = input1_spec.shape_[0];
+  auto& weight_spec = vxOpmap_tbl[input1_key_]->specs_[0];
+  uint32_t kernel_ic_index, kernel_oc_index;
+  uint32_t kernel_ic, kernel_oc;
+
+  if (tvx_attrs.kernel_layout == tim::vx::DataLayout::OcIcWH) {
+    kernel_ic_index = 1;
+    kernel_oc_index = 0;
+  } else if (tvx_attrs.kernel_layout == tim::vx::DataLayout::IcOcWH) {
+    kernel_ic_index = 0;
+    kernel_oc_index = 1;
+  } else { // tim::vx::DataLayout::WHIcOc
+    kernel_ic_index = 2;
+    kernel_oc_index = 3;
+  }
+
+  kernel_ic = weight_spec.shape_[kernel_ic_index];
+  kernel_oc = weight_spec.shape_[kernel_oc_index];
+  is_depthwise_conv =
+      (static_cast<uint32_t>(tvx_attrs.groups) == weight_spec.shape_[kernel_oc_index])
+      && (static_cast<uint32_t>(tvx_attrs.groups) != 1);
+
+  if(is_depthwise_conv && kernel_oc != 1){
+    weight_spec.shape_[kernel_oc_index]= 1;
+    weight_spec.shape_[kernel_ic_index]= kernel_ic*kernel_oc;
+  }
+
+  if(weight_spec.quantization_.Scales().size() != 1 && is_depthwise_conv){
+    weight_spec.quantization_.SetChannelDim(kernel_ic_index);
+  }
 
   UpdateInputTableInfo(vxOpmap_tbl, input1_key_, graph.get());
   UpdateOutputTableInfo(vxOpmap_tbl, expr_key_, graph.get());
 
-  bool is_depthwise_conv =
-      (static_cast<uint32_t>(tvx_attrs.groups) ==
-       vxOpmap_tbl[input0_key_]->specs_[0].shape_[0]);  // group == input_channel
   auto op = graph->CreateOperation<tim::vx::ops::Conv2d>(
-      is_depthwise_conv ? kernel_ic : kernel_oc, tim::vx::PadType::SAME,
+      kernel_oc, tvx_attrs.pad_type,
       std::array<uint32_t, 2>{tvx_attrs.kernel_size[0], tvx_attrs.kernel_size[1]},
       std::array<uint32_t, 2>{tvx_attrs.strides[0], tvx_attrs.strides[1]},
       std::array<uint32_t, 2>{tvx_attrs.dilation[0], tvx_attrs.dilation[1]},
       std::array<uint32_t, 4>{tvx_attrs.padding[0], tvx_attrs.padding[1], tvx_attrs.padding[2],
                               tvx_attrs.padding[3]},
-      is_depthwise_conv ? 1 : 0, tim::vx::DataLayout::CWHN, tim::vx::DataLayout::OcIcWH);
+      is_depthwise_conv ? 1 : 0, tvx_attrs.data_layout, tvx_attrs.kernel_layout);
 
   (*op).BindInputs(
       {vxOpmap_tbl[input0_key_]->ptensors_[0], vxOpmap_tbl[input1_key_]->ptensors_[0]});

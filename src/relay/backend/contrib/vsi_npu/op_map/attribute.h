@@ -87,6 +87,10 @@ void attrs_layout_transform(tvm::String tvm_attr, tim::vx::DataLayout& vx_attr) 
   static std::map<tvm::String, tim::vx::DataLayout> layout_table = {
     {"NHWC", tim::vx::DataLayout::CWHN},
     {"NCHW", tim::vx::DataLayout::WHCN},
+    {"OHWI", tim::vx::DataLayout::IcWHOc},
+    {"HWIO", tim::vx::DataLayout::OcIcWH},
+    {"HWOI", tim::vx::DataLayout::IcOcWH},
+    {"OIHW", tim::vx::DataLayout::WHIcOc},
   };
   auto it = layout_table.find(tvm_attr);
   if (it != layout_table.end()) {
@@ -105,6 +109,8 @@ struct TvxConv2dAttrs {
   std::vector<uint32_t> padding;
   tim::vx::PadType pad_type;
   tim::vx::DataLayout data_layout;
+  tim::vx::DataLayout kernel_layout;
+  tim::vx::DataLayout out_layout;
   int groups;
   TvxConv2dAttrs(const Call call) {
     auto tvm_attr_struct = call->attrs.as<Conv2DAttrs>();
@@ -115,6 +121,8 @@ struct TvxConv2dAttrs {
     attrs_int_transform(tvm_attr_struct->groups, groups);
     attrs_padtype_transform(tvm_attr_struct->padding, pad_type);
     attrs_layout_transform(tvm_attr_struct->data_layout, data_layout);
+    attrs_layout_transform(tvm_attr_struct->kernel_layout, kernel_layout);
+    attrs_layout_transform(tvm_attr_struct->out_layout, out_layout);
   }
 };
 
