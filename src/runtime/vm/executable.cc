@@ -61,6 +61,12 @@ PackedFunc Executable::GetFunction(const std::string& name, const ObjectPtr<Obje
   } else if (name == "get_bytecode") {
     return PackedFunc(
         [sptr_to_self, this](TVMArgs args, TVMRetValue* rv) { *rv = this->GetBytecode(); });
+  } else if (name == "get_constants") {
+    return PackedFunc([this](TVMArgs args, TVMRetValue* rv) { *rv = this->GetConstants(); });
+  } else if (name == "get_virtual_devices") {
+    return PackedFunc([this](TVMArgs args, TVMRetValue* rv) { *rv = this->GetVirtualDevices(); });
+  } else if (name == "get_primitives") {
+    return PackedFunc([this](TVMArgs args, TVMRetValue* rv) { *rv = this->GetPrimitives(); });
   } else if (name == "get_stats") {
     return PackedFunc([sptr_to_self, this](TVMArgs args, TVMRetValue* rv) { *rv = this->Stats(); });
   } else if (name == "save") {
@@ -119,10 +125,14 @@ std::string Executable::GetBytecode() const {
     const auto& func = functions[i];
     // Print the header of the function format.
     oss << "VM Function[" << i << "]: " << func.name << "(";
+    bool first = true;
     for (const auto& param : func.params) {
-      oss << param << ", ";
+      if (!first) {
+        oss << ", ";
+      }
+      oss << param;
+      first = false;
     }
-    oss.seekp(-2, std::ios_base::end);
     oss << ")" << std::endl;
     oss << "# reg file size = " << func.register_file_size << std::endl;
     oss << "# instruction count = " << func.instructions.size() << std::endl;
@@ -133,10 +143,12 @@ std::string Executable::GetBytecode() const {
     for (size_t idx = 0; idx < func.instructions.size(); ++idx) {
       const auto& instr = func.instructions[idx];
       const auto& serialized_instr = SerializeInstruction(instr);
-      oss << std::setw(2) << idx << ": " << serialized_instr.opcode << " ";
+      std::ostringstream line;
+      line << std::setw(2) << idx << ": " << serialized_instr.opcode << " ";
       for (auto it : serialized_instr.fields) {
-        oss << it << " ";
+        line << it << " ";
       }
+      oss << std::setw(40) << std::setfill(' ') << std::left << line.str();
       oss << "  # " << instr;
       if (oss.str().back() != '\n') oss << std::endl;
     }
@@ -144,6 +156,59 @@ std::string Executable::GetBytecode() const {
   }
 
   return oss.str();
+}
+
+namespace {
+String ShapeString(const ShapeTuple& shape_tuple, DLDataType dtype) {
+  std::stringstream sizes;
+  sizes << DLDataType2String(dtype) << "[";
+  for (size_t i = 0; i < shape_tuple.size(); i++) {
+    if (i != 0) {
+      sizes << ", ";
+    }
+    sizes << shape_tuple.data()[i];
+  }
+  sizes << "]";
+  return String(sizes.str());
+}
+}  // namespace
+
+std::string Executable::GetConstants() const {
+  std::ostringstream oss;
+  for (size_t i = 0; i < constants.size(); ++i) {
+    const auto& constant = constants[i];
+    auto ndarray = Downcast<NDArray>(constant);
+    oss << "VM Constant[" << i << "]: has shape " << ShapeString(ndarray.Shape(), ndarray->dtype)
+        << " on device index " << const_device_indexes[i] << std::endl;
+  }
+  return oss.str();
+}
+
+std::string Executable::GetVirtualDevices() const {
+  std::ostringstream oss;
+  for (size_t i = 0; i < virtual_devices.size(); ++i) {
+    const auto& device = virtual_devices[i];
+    oss << "VM VirtualDevice[" << i << "]: device type " << device.device_type << " and id "
+        << device.device_id << std::endl;
+  }
+  return oss.str();
+}
+
+std::string Executable::GetPrimitives() const {
+  std::ostringstream os;
+  std::vector<std::pair<int, std::string>> entries;
+  entries.reserve(primitive_map.size());
+  for (const auto& kv : primitive_map) {
+    entries.emplace_back(kv.second, kv.first);
+  }
+  std::sort(entries.begin(), entries.end(),
+            [](const std::pair<int, std::string>& left, const std::pair<int, std::string>& right) {
+              return left.first < right.first;
+            });
+  for (const auto& entry : entries) {
+    os << "VM PackedFunc[" << entry.first << "]: " << entry.second << std::endl;
+  }
+  return os.str();
 }
 
 std::string Executable::Stats() const {
@@ -215,6 +280,9 @@ TVMByteArray Executable::Save() {
   // Save header
   SaveHeader(&strm);
 
+  // Save virtual devices section.
+  SaveVirtualDevicesSection(&strm);
+
   // Global section.
   SaveGlobalSection(&strm);
 
@@ -233,9 +301,14 @@ TVMByteArray Executable::Save() {
   return arr;
 }
 
+void Executable::SaveVirtualDevicesSection(dmlc::Stream* strm) {
+  strm->Write(virtual_devices);
+  strm->Write(host_device_index);
+}
+
 void Executable::SaveGlobalSection(dmlc::Stream* strm) {
-  std::vector<std::pair<std::string, Index> > globals(this->global_map.begin(),
-                                                      this->global_map.end());
+  std::vector<std::pair<std::string, Index>> globals(this->global_map.begin(),
+                                                     this->global_map.end());
   auto comp = [](const std::pair<std::string, Index>& a, const std::pair<std::string, Index>& b) {
     return a.second < b.second;
   };
@@ -259,8 +332,8 @@ void Executable::SaveConstantSection(dmlc::Stream* strm) {
     runtime::SaveDLTensor(strm, it);
   }
 
-  // Save the const to device mapping.
-  strm->Write(this->const_device_type);
+  // Save the const to device index mapping.
+  strm->Write(this->const_device_indexes);
 }
 
 void Executable::SavePrimitiveOpNames(dmlc::Stream* strm) {
@@ -273,6 +346,20 @@ void Executable::SavePrimitiveOpNames(dmlc::Stream* strm) {
     primitive_names[packed_index] = it.first;
   }
   strm->Write(primitive_names);
+  std::map<uint64_t, std::map<std::string, std::string>> primitive_attrs;
+  for (const auto& it : this->op_attrs) {
+    auto packed_index = static_cast<size_t>(it.first);
+    std::map<std::string, std::string> attrs;
+    for (const auto& elem : it.second) {
+      // TODO(tkonolige): cannot serialize ObjectRefs with dmlc's serializer, so we just serialize
+      // strings for now
+      if (elem.second.as<StringObj>()) {
+        attrs[elem.first] = Downcast<String>(elem.second);
+      }
+    }
+    primitive_attrs[packed_index] = attrs;
+  }
+  strm->Write(primitive_attrs);
 }
 
 // Serialize a virtual machine instruction. It creates a list that contains the
@@ -294,7 +381,7 @@ void Executable::SavePrimitiveOpNames(dmlc::Stream* strm) {
 VMInstructionSerializer SerializeInstruction(const Instruction& instr) {
   std::vector<Index> fields;
   // Save the opcode.
-  DLOG(INFO) << "Serializing: " << instr << std::endl;
+  VLOG(2) << "Serializing: " << instr << std::endl;
   switch (instr.op) {
     case Opcode::Move: {
       // Number of fields = 2
@@ -363,7 +450,7 @@ VMInstructionSerializer SerializeInstruction(const Instruction& instr) {
       fields.push_back(dtype.code);
       fields.push_back(dtype.bits);
       fields.push_back(dtype.lanes);
-      fields.push_back(instr.alloc_storage.device_type);
+      fields.push_back(instr.alloc_storage.device_index);
       fields.push_back(instr.dst);
       break;
     }
@@ -443,7 +530,8 @@ VMInstructionSerializer SerializeInstruction(const Instruction& instr) {
     }
     case Opcode::DeviceCopy: {
       // Number of fields = 4
-      fields.assign({instr.src, instr.src_device_type, instr.dst_device_type, instr.dst});
+      fields.assign({instr.device_copy.src, instr.device_copy.src_device_index,
+                     instr.device_copy.dst_device_index, instr.dst});
       break;
     }
     default:
@@ -460,7 +548,7 @@ void Executable::SaveCodeSection(dmlc::Stream* strm) {
   for (const auto& func : this->functions) {
     // Save the function info.
     VMFunctionSerializer func_format(func.name, func.register_file_size, func.instructions.size(),
-                                     func.params, func.params_device_type);
+                                     func.params, func.param_device_indexes);
     func_format.Save(strm);
 
     // Serialize each instruction.
@@ -520,6 +608,9 @@ runtime::Module Executable::Load(const std::string& code, const runtime::Module 
   // Load header.
   LoadHeader(&strm);
 
+  // Virtual devices section
+  exec->LoadVirtualDevicesSection(&strm);
+
   // Global section.
   exec->LoadGlobalSection(&strm);
 
@@ -533,6 +624,12 @@ runtime::Module Executable::Load(const std::string& code, const runtime::Module 
   exec->LoadCodeSection(&strm);
 
   return runtime::Module(exec);
+}
+
+void Executable::LoadVirtualDevicesSection(dmlc::Stream* strm) {
+  STREAM_CHECK(strm->Read(&virtual_devices), "virtual_device");
+  STREAM_CHECK(strm->Read(&host_device_index), "virtual_device");
+  ICHECK(host_device_index >= 0 && host_device_index < static_cast<int>(virtual_devices.size()));
 }
 
 void Executable::LoadGlobalSection(dmlc::Stream* strm) {
@@ -553,14 +650,15 @@ void Executable::LoadConstantSection(dmlc::Stream* strm) {
   for (size_t i = 0; i < size; i++) {
     runtime::NDArray constant;
     STREAM_CHECK(constant.Load(strm), "constant");
-    this->constants.push_back(constant);
+    this->constants.emplace_back(std::move(constant));
   }
 
-  // Load the const to device mapping.
-  std::vector<Index> const_device_type;
-  STREAM_CHECK(strm->Read(&const_device_type), "constant");
-  ICHECK_EQ(size, const_device_type.size());
-  this->const_device_type = const_device_type;
+  // Load the const to device index mapping.
+  std::vector<Index> const_device_indexes;
+  const_device_indexes.reserve(size);
+  STREAM_CHECK(strm->Read(&const_device_indexes), "constant");
+  ICHECK_EQ(size, const_device_indexes.size());
+  this->const_device_indexes = std::move(const_device_indexes);
 }
 
 void Executable::LoadPrimitiveOpNames(dmlc::Stream* strm) {
@@ -568,6 +666,16 @@ void Executable::LoadPrimitiveOpNames(dmlc::Stream* strm) {
   STREAM_CHECK(strm->Read(&primitive_names), "primitive name");
   for (size_t i = 0; i < primitive_names.size(); i++) {
     this->primitive_map.insert({primitive_names[i], i});
+  }
+
+  std::map<uint64_t, std::map<std::string, std::string>> primitive_attrs;
+  STREAM_CHECK(strm->Read(&primitive_attrs), "primitive attrs");
+  for (const auto& fn : primitive_attrs) {
+    std::vector<std::pair<String, ObjectRef>> attrs;
+    for (const auto& elem : fn.second) {
+      attrs.push_back({elem.first, String(elem.second)});
+    }
+    this->op_attrs[fn.first] = Map<String, ObjectRef>(attrs.begin(), attrs.end());
   }
 }
 
@@ -792,8 +900,9 @@ void Executable::LoadCodeSection(dmlc::Stream* strm) {
     }
 
     // Create the VM function.
-    VMFunction vm_func = VMFunction(loaded_func.name, loaded_func.params, instructions,
-                                    loaded_func.register_file_size, loaded_func.params_device_type);
+    VMFunction vm_func =
+        VMFunction(loaded_func.name, loaded_func.params, instructions,
+                   loaded_func.register_file_size, loaded_func.param_device_indexes);
     auto it = this->global_map.find(loaded_func.name);
     ICHECK(it != this->global_map.end());
     ICHECK_LE(it->second, this->global_map.size());
@@ -851,8 +960,8 @@ TVM_REGISTER_GLOBAL("runtime.GetGlobalFields").set_body([](TVMArgs args, TVMRetV
   const auto* exec = dynamic_cast<Executable*>(mod.operator->());
   ICHECK(exec);
   int idx = args[1];
-  std::vector<std::pair<std::string, Index> > globals(exec->global_map.begin(),
-                                                      exec->global_map.end());
+  std::vector<std::pair<std::string, Index>> globals(exec->global_map.begin(),
+                                                     exec->global_map.end());
   auto comp = [](const std::pair<std::string, Index>& a, const std::pair<std::string, Index>& b) {
     return a.second < b.second;
   };

@@ -28,11 +28,16 @@
 #include <tvm/tir/transform.h>
 
 #include "../../support/utils.h"
+#include "ir_utils.h"
 
 namespace tvm {
 namespace tir {
 
 PrimExpr BufferArea(const Buffer& buffer) {
+  if (buffer->strides.size()) {
+    ICHECK(buffer->shape.size() == buffer->strides.size());
+    return buffer->strides[0] * buffer->shape[0];
+  }
   PrimExpr area = Integer(1);
   for (const PrimExpr& dim : buffer->shape) {
     area = area * dim;
@@ -127,13 +132,9 @@ class BufferFlattener : public StmtExprMutator {
   }
 
   static Stmt MakeAllocStmt(const Buffer& buffer, Stmt body) {
-    String storage_scope = buffer->scope;
-    if (storage_scope.empty()) {
-      storage_scope = "global";
-    }
+    String storage_scope = buffer.scope();
     PrimExpr area = BufferArea(buffer);
     body = Allocate(buffer->data, buffer->dtype, {area}, const_true(), std::move(body));
-    body = AttrStmt(buffer->data, attr::storage_scope, StringImm(storage_scope), std::move(body));
     return body;
   }
 
@@ -143,7 +144,10 @@ class BufferFlattener : public StmtExprMutator {
                      /*var=*/std::move(var),
                      /*iter_type=*/IterVarType::kThreadIndex,
                      /*thread_tag=*/thread_tag);
-    String attr_key = thread_tag == "vthread" ? attr::virtual_thread : attr::thread_extent;
+    String attr_key = (thread_tag == "vthread" || thread_tag == "vthread.x" ||
+                       thread_tag == "vthread.y" || thread_tag == "vthread.z")
+                          ? attr::virtual_thread
+                          : attr::thread_extent;
     return AttrStmt(/*node=*/std::move(iter_var),
                     /*attr_key=*/std::move(attr_key),
                     /*value=*/std::move(extent),
@@ -155,9 +159,14 @@ class BufferFlattener : public StmtExprMutator {
 };
 
 PrimFunc FlattenBuffer(PrimFunc f) {
-  PrimFuncNode* fptr = f.CopyOnWrite();
-  fptr->body = BufferFlattener::Flatten(f);
-  return f;
+  // Only apply this pass to TIR that is not from TE schedules
+  if (!IsFromLegacyTESchedule(f)) {
+    PrimFuncNode* fptr = f.CopyOnWrite();
+    fptr->body = BufferFlattener::Flatten(f);
+    return f;
+  } else {
+    return f;
+  }
 }
 
 namespace transform {

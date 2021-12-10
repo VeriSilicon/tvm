@@ -76,6 +76,19 @@ def test_target_string_parse():
     assert tvm.target.arm_cpu().device_name == "arm_cpu"
 
 
+def test_target_string_with_spaces():
+    target = tvm.target.Target(
+        "vulkan -device_name='Name of GPU with spaces' -device_type=discrete"
+    )
+    assert target.attrs["device_name"] == "Name of GPU with spaces"
+    assert target.attrs["device_type"] == "discrete"
+
+    target = tvm.target.Target(str(target))
+
+    assert target.attrs["device_name"] == "Name of GPU with spaces"
+    assert target.attrs["device_type"] == "discrete"
+
+
 def test_target_create():
     targets = [cuda(), rocm(), mali(), intel_graphics(), arm_cpu("rk3399"), vta(), bifrost()]
     for tgt in targets:
@@ -91,7 +104,6 @@ def test_target_config():
         "keys": ["arm_cpu", "cpu"],
         "device": "arm_cpu",
         "libs": ["cblas"],
-        "system-lib": True,
         "mfloat-abi": "hard",
         "mattr": ["+neon", "-avx512f"],
     }
@@ -104,7 +116,6 @@ def test_target_config():
         assert all([key in target.keys for key in ["arm_cpu", "cpu"]])
         assert target.device_name == "arm_cpu"
         assert target.libs == ["cblas"]
-        assert "system-lib" in str(target)
         assert target.attrs["mfloat-abi"] == "hard"
         assert all([attr in target.attrs["mattr"] for attr in ["+neon", "-avx512f"]])
 
@@ -290,14 +301,14 @@ def test_check_and_update_host_consist_3():
 
 
 def test_target_attr_bool_value():
-    target0 = Target("llvm --link-params=True")
-    assert target0.attrs["link-params"] == 1
-    target1 = Target("llvm --link-params=true")
-    assert target1.attrs["link-params"] == 1
-    target2 = Target("llvm --link-params=False")
-    assert target2.attrs["link-params"] == 0
-    target3 = Target("llvm --link-params=false")
-    assert target3.attrs["link-params"] == 0
+    target0 = Target("vulkan --supports_float16=True")
+    assert target0.attrs["supports_float16"] == 1
+    target1 = Target("vulkan --supports_float16=true")
+    assert target1.attrs["supports_float16"] == 1
+    target2 = Target("vulkan --supports_float16=False")
+    assert target2.attrs["supports_float16"] == 0
+    target3 = Target("vulkan --supports_float16=false")
+    assert target3.attrs["supports_float16"] == 0
 
 
 if __name__ == "__main__":

@@ -515,7 +515,6 @@ class IterMapRewriter : public ExprMutator {
    */
   Optional<IterSplitExpr> TryFuseIters(IterSumExpr expr) {
     if (!is_zero(expr->base)) return NullOpt;
-    if (expr->args.size() == 1) return expr->args[0];
     // select the iterators in order
     std::vector<bool> visited(expr->args.size(), false);
     std::vector<IterSplitExpr> flattened_iters, grouped_iters;
@@ -700,6 +699,16 @@ std::vector<IterConstraint> MatchUpperBoundConstraints(PrimExpr pred) {
   return result;
 }
 
+bool IterRangeSanityCheck(const Map<Var, Range>& iter_ranges) {
+  std::unordered_set<Var, ObjectPtrHash, ObjectPtrEqual> iters;
+  for (const auto& it : iter_ranges) iters.insert(it.first);
+  auto f = [&](const VarNode* var) { return iters.count(GetRef<Var>(var)); };
+  for (const auto& it : iter_ranges) {
+    if (UsesVar(it.second->min, f) || UsesVar(it.second->extent, f)) return false;
+  }
+  return true;
+}
+
 Array<IterSumExpr> DetectIterMap(const Array<PrimExpr>& indices, const Map<Var, Range>& input_iters,
                                  const PrimExpr& predicate, bool require_bijective,
                                  arith::Analyzer* analyzer) {
@@ -707,6 +716,7 @@ Array<IterSumExpr> DetectIterMap(const Array<PrimExpr>& indices, const Map<Var, 
   // - Step0: IterMapRewriter rewrites the expression to use IterMapExpr patterns.
   // - Step1: IterIndependenceChecker checks if the iterator are independent.
 
+  if (!IterRangeSanityCheck(input_iters)) return Array<IterSumExpr>();
   std::vector<IterConstraint> constraints = MatchUpperBoundConstraints(predicate);
   if (!is_one(predicate) && constraints.empty()) return Array<IterSumExpr>();
 
@@ -1086,6 +1096,22 @@ TVM_REGISTER_GLOBAL("arith.NormalizeIterMapToExpr").set_body_typed([](const Iter
   return NormalizeIterMapToExpr(expr);
 });
 
+Array<PrimExpr> IterMapSimplify(const Array<PrimExpr>& indices, const Map<Var, Range>& input_iters,
+                                const PrimExpr& input_pred, bool require_bijective) {
+  if (!IterRangeSanityCheck(input_iters)) return indices;
+  Analyzer analyzer;
+  Array<IterSumExpr> rewrite =
+      DetectIterMap(indices, input_iters, input_pred, require_bijective, &analyzer);
+  if (rewrite.empty()) {
+    return indices;
+  }
+  Array<PrimExpr> res;
+  res.reserve(rewrite.size());
+  IterMapToExprNormalizer converter(&analyzer);
+  for (const auto& expr : rewrite) res.push_back(converter.Convert(expr));
+  return res;
+}
+
 /*!
  * \brief Divider to divide the bindings into two sets of bindings(outer and inner)
  *   such that binding_i = Y_i * E(Xi) + Xi, where E(X) is the extent of X.
@@ -1351,6 +1377,7 @@ Array<Array<IterMark>> SubspaceDivide(const Array<PrimExpr>& bindings,
                                       const Map<Var, Range>& input_iters,
                                       const Array<Var>& sub_iters, const PrimExpr& predicate,
                                       bool require_bijective, arith::Analyzer* analyzer) {
+  if (!IterRangeSanityCheck(input_iters)) return Array<Array<IterMark>>();
   const Array<IterSumExpr>& maps =
       DetectIterMap(bindings, input_iters, predicate, require_bijective, analyzer);
   if (maps.empty()) return {};
@@ -1425,16 +1452,15 @@ class InverseAffineIterMapTransformer {
       return;
     }
 
-    // Case 2: If the sum expression has multiple components, match the fuse pattern and then split
+    // Case 2: If the sum expression has multiple components, check the fuse pattern and then split
     // the sum expression for each components.
     // For example, consider the iterator i1[dom = (0, 16)], i2[dom = (0, 8)], fusing i1 and i2
     // we will have i1_i2_fused[dom = (0, 64)]. During back propagation, we need to split the
     // propagated value to get the corresponding components of i1 and i2, which are
     // floordiv(i1_i2_fused, 8) and floormod(i1_i2_fused, 8), respectively.
-    Array<IterSplitExpr> splits = MatchFusePattern(iter_map_expr);
-    ICHECK(!splits.empty());
-
-    for (const IterSplitExpr& split : splits) {
+    CheckFusePattern(iter_map_expr);
+    for (size_t i = iter_map_expr->args.size(); i > 0; i--) {
+      const IterSplitExpr& split = iter_map_expr->args[i - 1];
       backprop_.Set(split,
                     backprop_.at(split) + floormod(floordiv(input, split->scale), split->extent));
     }
@@ -1485,33 +1511,17 @@ class InverseAffineIterMapTransformer {
     }
   }
 
-  Array<IterSplitExpr> MatchFusePattern(const IterSumExpr sum_expr) {
-    IntImm base_scale(nullptr);
-    size_t base_index = 0;
-    for (size_t i = 0; i < sum_expr->args.size(); ++i) {
-      if (const auto* op = sum_expr->args[i]->scale.as<IntImmNode>()) {
-        if (!base_scale.defined() || op->value < base_scale->value) {
-          base_scale = GetRef<IntImm>(op);
-          base_index = i;
-        }
-      }
+  /*
+   * \brief Check the fuse pattern of sum_expr. We assume components of sum_expr is sorted in
+   *        descending order of lower_factor.
+   */
+  void CheckFusePattern(const IterSumExpr sum_expr) {
+    ICHECK(sum_expr->args.size());
+    PrimExpr expected_scale = sum_expr->args.back()->scale;
+    for (size_t i = sum_expr->args.size(); i > 0; i--) {
+      ICHECK(analyzer_->CanProveEqual(sum_expr->args[i - 1]->scale, expected_scale));
+      expected_scale *= sum_expr->args[i - 1]->extent;
     }
-    ICHECK(base_scale.defined());
-    std::vector<IterSplitExpr> iters;
-    std::vector<bool> visited(sum_expr->args.size(), false);
-    PrimExpr expected_scale = base_scale;
-    for (size_t i = 0; i < sum_expr->args.size(); i++) {
-      size_t j = i == 0 ? base_index : 0;
-      for (; j < sum_expr->args.size(); ++j) {
-        if (!visited[j] && analyzer_->CanProveEqual(sum_expr->args[j]->scale, expected_scale))
-          break;
-      }
-      ICHECK(j != sum_expr->args.size());
-      visited[j] = true;
-      iters.push_back(sum_expr->args[j]);
-      expected_scale *= sum_expr->args[j]->extent;
-    }
-    return iters;
   }
 
   Analyzer* analyzer_;
